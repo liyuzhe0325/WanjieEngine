@@ -13,6 +13,7 @@ renderer.shadowMap.enabled=false;
 document.body.appendChild(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);
 orbit.enableDamping=true;
+orbit.dampingFactor=0.075;orbit.rotateSpeed=0.55;orbit.zoomSpeed=0.7;orbit.panSpeed=0.7;orbit.minPolarAngle=0.1;orbit.maxPolarAngle=Math.PI/2-0.10;orbit.minDistance=1.7;orbit.maxDistance=160;
 scene.add(new THREE.HemisphereLight(0xe9eefc,0x37332a,2));
 const sun=new THREE.DirectionalLight(0xffe9cf,2.4);sun.position.set(7,12,9);scene.add(sun);
 const stage=new THREE.Group();scene.add(stage);
@@ -23,7 +24,7 @@ const metrics=document.createElement('div');
 metrics.style.cssText='margin-top:8px;white-space:pre-line;color:#d6b47e;font:13px/1.5 monospace';
 $('stats').replaceWith(metrics);metrics.id='stats';
 let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh=0,loadStatus='默认占位模型';
-const lodHistory=new Map();const LOD_HYSTERESIS=0.12;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
+let globalBand=0;const LOD_HYSTERESIS=0.10;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
 const safeNum=id=>Number($(id).value);
 const geometry=new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6);
 const soilGeometry=new THREE.CylinderGeometry(.855,.855,.035,6,1).rotateY(Math.PI/6);
@@ -56,7 +57,7 @@ function makeSet(lod,kind,obj,proxyGeom,proxyMat){
 }
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
- groups=[];tiles=hex(radius);lodHistory.clear();
+ groups=[];tiles=hex(radius);
  if(assets.t){const tm=collect(assets.t).find(m=>m.material?.map);
   if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
  }
@@ -81,26 +82,22 @@ function refresh(){
  visible.sort((a,b)=>a.dist-b.dist);
  // Budget is a safeguard, not a number-of-tiles cap. Use actual triangle costs.
  const levelCost=[0,1,2].map(l=>groups.filter(g=>g.lod===l).reduce((s,g)=>s+g.tri,0));
- const desired=visible.map(t=>{
-  let lod;
-  if($('mode').value!=='auto')lod=Number($('mode').value);
-  else {
-   const key=t.q+','+t.r,old=lodHistory.get(key);
-   const near=safeNum('near'),mid=Math.min(safeNum('mid'),near-1),h=LOD_HYSTERESIS;
-   if(old===0) lod=t.pixels<near*(1-h)?(t.pixels<mid*(1-h)?2:1):0;
-   else if(old===1) lod=t.pixels>near*(1+h)?0:t.pixels<mid*(1-h)?2:1;
-   else if(old===2) lod=t.pixels>near*(1+h)?0:t.pixels>mid*(1+h)?1:2;
-   else lod=t.pixels>near?0:t.pixels>mid?1:2;
-   lodHistory.set(key,lod);
-  }
-  return {...t,lod};
- });
+ // A tabletop-wide quality choice based on camera height avoids near/far strips.
+ // Five zoom bands, backed by three currently available geometry assets.
+ const heights=[4.0,7.0,12.0,20.0];
+ const height=Math.max(.1,Math.abs(camera.position.y-orbit.target.y));
+ const requested=$('mode').value==='auto'?null:Number($('mode').value);
+ if(requested===null){
+  while(globalBand<4&&height>heights[globalBand]*(1+LOD_HYSTERESIS))globalBand++;
+  while(globalBand>0&&height<heights[globalBand-1]*(1-LOD_HYSTERESIS))globalBand--;
+ }else globalBand=[0,2,4][requested]??2;
+ const mapping=[0,0,1,1,2];
+ let uniformLOD=mapping[globalBand];
  const budget=Number($('triangleBudget')?.value||2000000);
- let remaining=budget;
- for(const t of desired){
-  while(t.lod<2&&remaining<levelCost[t.lod])t.lod++;
-  remaining-=levelCost[t.lod];
- }
+ const levelCost=[0,1,2].map(l=>groups.filter(g=>g.lod===l).reduce((sum,g)=>sum+g.tri,0));
+ // Downgrade ALL visible tiles together under budget, preventing a quality strip.
+ while(uniformLOD<2&&levelCost[uniformLOD]*visible.length>budget)uniformLOD++;
+ const desired=visible.map(t=>({...t,lod:uniformLOD}));
  const counts=[0,0,0];const baseOnly=$('baseOnly').checked,terrainOnly=$('terrainOnly').checked;
  for(let l=0;l<3;l++){
   const batch=desired.filter(t=>t.lod===l);counts[l]=batch.length;
@@ -128,7 +125,8 @@ function refresh(){
  '\n三角面预算：'+(budget/1000000).toFixed(1)+'M'+
  '\nDraw Calls：'+renderer.info.render.calls+
  '\n当前三角面：'+renderer.info.render.triangles+
- '\nFPS（约）：'+fpsValue+'\nLOD 切换滞回：±12%'+
+ '\n相机离地高度：'+height.toFixed(2)+' / 全局缩放档：'+(globalBand+1)+'/5'+
+ '\nFPS（约）：'+fpsValue+'\nLOD 切换滞回：±10%'+
  '\n模型：'+loadStatus;
  dirty=false;
 }
