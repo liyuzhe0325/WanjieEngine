@@ -16,6 +16,8 @@ try {
  await page.waitForFunction(()=>document.getElementById('notice')?.textContent.includes('准备就绪'),{timeout:30000});
  const canvas=page.locator('#viewport canvas');await canvas.waitFor({timeout:10000});
  if(await canvas.count()!==1)throw Error('Canvas not initialized');
+ await page.waitForFunction(()=>document.body.dataset.previewAsset==='pieces/obelisk',{timeout:25000});
+ if(!((await page.locator('#notice').textContent())||'').includes('glTF'))throw Error('GLTF preview status missing');
  await page.locator('[data-angle="55"]').click();
  if(await page.locator('#angle').textContent()!=='55°')throw Error('Angle toggle failed');
  await page.locator('[data-angle="70"]').click();
