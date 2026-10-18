@@ -22,6 +22,11 @@ try {
  await page.locator('[data-tool="forest"]').click();
  const box=await canvas.boundingBox();await page.mouse.click(box.x+box.width*.52,box.y+box.height*.51);
  await page.waitForTimeout(500);
+ if(!((await page.locator('#notice').textContent())||'').includes('已应用'))throw Error('Terrain edit did not apply');
+ await page.locator('#undo').click();
+ if(!((await page.locator('#notice').textContent())||'').includes('撤销成功'))throw Error('Undo did not complete');
+ await page.locator('#redo').click();
+ if(!((await page.locator('#notice').textContent())||'').includes('重做成功'))throw Error('Redo did not complete');
  if(errors.length)throw Error(errors.join('\n'));
  await mkdir('test-artifacts',{recursive:true});await page.screenshot({path:'test-artifacts/board.png',fullPage:true});
  console.log('Browser startup, WebGL canvas, camera switching, editor click: PASS');
