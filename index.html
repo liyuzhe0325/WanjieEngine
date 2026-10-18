@@ -1,5 +1,15 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wanjie Engine · 0.4</title><link rel="stylesheet" href="./style.css"><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script></head><body>
-<div id="viewport"></div><header><div class="kicker">WANJIE ENGINE / RENDER FOUNDATIONS</div><h1>万界 · 棋盘工坊</h1><p>可编辑立体地貌 · 区块更新 · 雕塑棋子</p></header>
-<aside><div class="label">相机视角 <strong id="angle">55°</strong></div><div class="buttons"><button data-angle="55" class="on">55°</button><button data-angle="70">70°</button><button data-angle="85">85°</button></div><div class="divider"></div><div class="label">渲染品质</div><div class="buttons"><button data-quality="standard" class="on">标准</button><button data-quality="high">高画质 GTAO</button></div><div class="label">性能 <strong id="perf">统计中</strong></div><div class="divider"></div><div class="label">地形画笔</div><div class="tools"><button class="on" data-tool="inspect">观察</button><button data-tool="forest">造林</button><button data-tool="meadow">清理</button><button data-tool="road">道路</button><button data-tool="blight">腐化</button><button data-tool="castle">城堡</button></div><div class="divider"></div><label class="check"><input type="checkbox" id="grid" checked> 显示规则格线</label><div class="divider"></div><div class="label">当前地块</div><p id="selected">点击地图选择地块</p><div class="divider"></div><div class="label">世界管理</div><div class="buttons"><button id="undo">撤销</button><button id="redo">重做</button><button id="save">导出</button><button id="load">导入</button><button id="reset">重置</button><input type="file" id="file" accept="application/json" hidden></div><div class="divider"></div><div id="notice">加载中...</div></aside>
-<div class="footer">鼠标右键拖动：平移　｜　滚轮：缩放　｜　左键：选择 / 编辑　｜　1 / 2 / 3：镜头角度　｜　Ctrl+Z：撤销</div>
-<script type="module" src="./src/main.js"></script></body></html>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>万界文明 · 卡牌世界实验</title><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./game.css"><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script></head><body class="game-mode">
+<div id="viewport"></div>
+<header><div class="kicker">WANJIE CIVILIZATION / PLAYABLE MECHANICS</div><h1>万界文明</h1><p>卡牌 × 世界规则 · 可交互实验</p><a class="editor-link" href="./editor.html">打开地形编辑器 ↗</a></header>
+<aside class="game-panel">
+ <div class="label">世界状态 <strong id="turn">第 0 次结算</strong></div>
+ <p class="game-description">选择卡牌，再点击棋盘地块。预览不会消耗卡牌或改变世界。</p>
+ <div class="divider"></div><div class="label">选中地块</div><p id="selected">点击地图查看地块</p>
+ <div class="divider"></div><div class="label">结算预览</div><p id="preview" aria-live="polite">选择一张牌，然后点击目标地块。</p>
+ <div class="buttons"><button id="confirm" disabled>确认出牌</button><button id="cancel">取消选择</button></div>
+ <div class="divider"></div><div class="label">事件反馈</div><p id="notice" aria-live="polite">世界已准备就绪。</p>
+ <div class="divider"></div><div class="label">视角</div><div class="buttons"><button data-angle="55" class="on">55°</button><button data-angle="70">70°</button><button data-angle="85">85°</button></div>
+</aside>
+<section id="hand" aria-label="实验卡牌"><div class="hand-heading"><strong>实验手牌</strong><span>两张演示牌 · 可重复使用（非正式卡牌经济）</span></div><div class="hand-cards"><button class="game-card" data-card="spark"><strong>火种</strong><span>热量 +55</span><small>干燥环境可能点燃燃料</small></button><button class="game-card" data-card="rain"><strong>降雨</strong><span>湿度 +45</span><small>潮湿环境可能抑制火势</small></button></div></section>
+<div class="footer">左键：选择地块　｜　右键拖动：平移　｜　滚轮：缩放　｜　Esc：取消　｜　当前为方格规则实验，六角棋盘尚未集成</div>
+<script type="module" src="./src/game-main.js"></script></body></html>
