@@ -1,17 +1,32 @@
-# Wanjie Engine
+# Wanjie Engine 0.4 · 网页 3D 棋盘基础版
 
-面向《万界文明》的网页 3D 棋盘引擎（开发中）。
+本仓库包含《万界文明》的网页 3D 棋盘引擎技术原型，**不是已完成的游戏**。
 
-目标：模块化世界数据、可改造地貌、雕塑式棋子、数据驱动编辑和可验证的渲染基础。采用 JavaScript/Three.js，参考 Godot 的场景、资源与工具设计思路，不照搬其引擎源码。
+## 运行
 
-## 当前状态
+在项目根目录启动 `python -m http.server 8000`，随后打开 http://localhost:8000 。浏览器需联网从 CDN 加载 Three.js 0.180.0；暂不支持可靠离线运行。
 
-仓库初始化中，现有本地技术原型为 Wanjie Engine 0.4。完整源码及自动化测试尚待同步到此仓库。此前技术原型不是正式美术成果；目前未完成真实浏览器端到端回归。
+## 测试
 
-## 原则
+`node --test tests/*.test.js` 或 `npm test`。要求 Node.js 18+，测试无需 npm install。
 
-- 引擎与具体游戏规则分离。
-- 地图状态是权威数据，渲染只是其视图。
-- 尽量通过代码和数据生成对象，不依赖手动节点绑定。
-- 修改应有测试、可重现的种子和明确的验证记录。
-- 第三方依赖记录版本与许可证。
+## 架构
+
+- `src/world.js`：确定性地图、编辑、撤销/重做、JSON 存档验证；不依赖浏览器。
+- `src/view.js`：Three.js 地形网格、8×8 区块、实例化树木与石块、射线拾取、正交镜头。
+- `src/main.js`：编辑器交互及文件导入导出。
+- `tests/world.test.js`：数据层的五个自动测试。
+
+## 参考与许可证
+
+仅借鉴开源项目的技术思想，未复制代码或素材：
+- [von-grid (MIT)](https://github.com/vonWolfehaus/von-grid)
+- [threejs-hex-map (MIT)](https://github.com/Bunkerbewohner/threejs-hex-map)
+- [Three.js docs](https://threejs.org/docs/)
+
+## 已知限制
+
+- 地貌与棋子使用程序几何占位模型，未达到美术目标。
+- 地表修改后的格线不会同步重建；相邻区块的几何缓存可能需要联动更新。
+- 缺少资源管线、性能基准、GPU 回归、自动浏览器截图和第三方依赖的本地构建。
+- 逻辑测试与 JS 语法检查通过，不等于浏览器渲染通过。
