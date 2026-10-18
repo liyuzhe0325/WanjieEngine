@@ -35,6 +35,7 @@ for(let i=0;i<uv.count;i++){uv.setXY(i,positions.getX(i)/1.9+.5,positions.getZ(i
 uv.needsUpdate=true;
 const stoneMaterial=new THREE.MeshStandardMaterial({color:'#4e4b47',roughness:1});
 let soilMaterial=new THREE.MeshStandardMaterial({color:'#a07e5d',roughness:1});
+let derivedSoilSource=null;
 
 function turn(t){return $('rotateVar').checked?Math.abs(t.q*13+t.r*29+t.q*t.r*7)%6*Math.PI/3:0}
 function collect(obj){
@@ -59,8 +60,19 @@ function makeSet(lod,kind,obj,proxyGeom,proxyMat){
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
  groups=[];tiles=hexDisk(radius);
- if(assets.t){const tm=collect(assets.t).find(m=>m.material?.map);
-  if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
+ // The far-field proxy owns its derived material. Reuse it on radius/LOD
+ // rebuilds; never dispose the source GLB's shared material or its textures.
+ const source=assets.t?collect(assets.t).find(m=>m.material?.map)?.material??null:null;
+ if(source!==derivedSoilSource){
+  const previous=soilMaterial;
+  soilMaterial=source?source.clone():new THREE.MeshStandardMaterial({color:'#a07e5d',roughness:1});
+  if(source){
+   soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;
+   soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;
+   soilMaterial.color.set('white');soilMaterial.needsUpdate=true;
+  }
+  derivedSoilSource=source;
+  previous.dispose();
  }
  for(let level=0;level<3;level++){
   groups.push(...makeSet(level,'base',level===0?assets.b1:level===1?assets.b2:null,geometry,stoneMaterial));
