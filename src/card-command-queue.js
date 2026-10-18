@@ -32,7 +32,7 @@ export function createCardQueue(world){
    const output={kind:'barrier',tick:world.tick,commands:applied,changes:resolution.changes,
      before,after:snapshot(world)};
    // Return independent snapshots, not mutable references to world state.
-   return structuredClone(output);
+   return JSON.parse(JSON.stringify(output));
   }
  };
 }
