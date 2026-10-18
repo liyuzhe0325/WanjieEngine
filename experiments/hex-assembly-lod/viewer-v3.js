@@ -24,6 +24,8 @@ const metrics=document.createElement('div');
 metrics.style.cssText='margin-top:8px;white-space:pre-line;color:#d6b47e;font:13px/1.5 monospace';
 $('stats').replaceWith(metrics);metrics.id='stats';
 let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh=0,loadStatus='默认占位模型';
+const activeTop=()=> $('terrainType').value==='meadow';
+const topForLOD=l=>activeTop()? (assets['m'+(l+1)]||null) : [assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
 let globalBand=0;const LOD_HYSTERESIS=0.10;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
 const safeNum=id=>Number($(id).value);
 const geometry=new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6);
@@ -58,12 +60,13 @@ function makeSet(lod,kind,obj,proxyGeom,proxyMat){
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
  groups=[];tiles=hex(radius);
- if(assets.t){const tm=collect(assets.t).find(m=>m.material?.map);
+ const referenceTop=activeTop()?assets.m1:assets.t;
+ if(referenceTop){const tm=collect(referenceTop).find(m=>m.material?.map);
   if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
  }
- for(let level=0;level<3;level++){
+ for(let level=0;level<4;level++){
   groups.push(...makeSet(level,'base',level===0?assets.b1:level===1?assets.b2:null,geometry,stoneMaterial));
-  groups.push(...makeSet(level,'top',level===0?assets.t:level===1?(assets.t1||assets.t):assets.t2,soilGeometry,soilMaterial));
+  groups.push(...makeSet(level,'top',topForLOD(level),soilGeometry,soilMaterial));
  }
  dirty=true;
 }
@@ -89,15 +92,15 @@ function refresh(){
   while(globalBand<4&&height>heights[globalBand]*(1+LOD_HYSTERESIS))globalBand++;
   while(globalBand>0&&height<heights[globalBand-1]*(1-LOD_HYSTERESIS))globalBand--;
  }else globalBand=[0,2,4][requested]??2;
- const mapping=[0,0,1,1,2];
+ const mapping=activeTop()?[0,1,1,2,3]:[0,0,1,1,2];
  let uniformLOD=mapping[globalBand];
  const budget=Number($('triangleBudget')?.value||2000000);
- const levelCost=[0,1,2].map(l=>groups.filter(g=>g.lod===l).reduce((sum,g)=>sum+g.tri,0));
+ const levelCost=[0,1,2,3].map(l=>groups.filter(g=>g.lod===l).reduce((sum,g)=>sum+g.tri,0));
  // Downgrade ALL visible tiles together under budget, preventing a quality strip.
- while(uniformLOD<2&&levelCost[uniformLOD]*visible.length>budget)uniformLOD++;
+ while(uniformLOD<3&&levelCost[uniformLOD]*visible.length>budget)uniformLOD++;
  const desired=visible.map(t=>({...t,lod:uniformLOD}));
- const counts=[0,0,0];const baseOnly=$('baseOnly').checked,terrainOnly=$('terrainOnly').checked;
- for(let l=0;l<3;l++){
+ const counts=[0,0,0,0];const baseOnly=$('baseOnly').checked,terrainOnly=$('terrainOnly').checked;
+ for(let l=0;l<4;l++){
   const batch=desired.filter(t=>t.lod===l);counts[l]=batch.length;
   for(const g of groups.filter(g=>g.lod===l)){
    g.inst.count=(g.kind==='base'&&terrainOnly)||(g.kind==='top'&&baseOnly)?0:batch.length;
@@ -107,7 +110,7 @@ function refresh(){
     matrix.makeTranslation(t.x,0,t.z);
     if(g.kind==='top'){
      tempMatrix.makeRotationY(turn(t));matrix.multiply(tempMatrix);
-     if((l===0&&assets.t)||(l===1&&(assets.t1||assets.t))||(l===2&&assets.t2)){
+     if(topForLOD(l)){
       tempMatrix.makeTranslation(0,safeNum('lift'),0);matrix.multiply(tempMatrix);
       tempMatrix.makeScale(safeNum('scale'),safeNum('scale'),safeNum('scale'));matrix.multiply(tempMatrix);
      }else{tempMatrix.makeTranslation(0,.12,0);matrix.multiply(tempMatrix)}
@@ -119,7 +122,7 @@ function refresh(){
   }
  }
  currentStats='地图总格：'+tiles.length+' / 视野内：'+visible.length+
- '\n实际 LOD0 / LOD1 / 纹理代理：'+counts.join(' / ')+
+ '\nLOD 0 / 1 / 2 / 3：'+counts.join(' / ')+
  '\n三角面预算：'+(budget/1000000).toFixed(1)+'M'+
  '\nDraw Calls：'+renderer.info.render.calls+
  '\n当前三角面：'+renderer.info.render.triangles+
@@ -133,7 +136,8 @@ async function apply(entries){
  let n=0;
  for(const [filename,data] of entries){
   try{const obj=await load(filename,data);
-   if(filename.includes('terrain_lod1'))assets.t1=obj;
+   if(/^meadow_lod([1-4])\.glb$/i.test(filename))assets['m'+filename.match(/([1-4])\.glb$/i)[1]]=obj;
+   else if(filename.includes('terrain_lod1'))assets.t1=obj;
    else if(filename.includes('terrain_lod2'))assets.t2=obj;
    else if(filename.includes('base_lod1'))assets.b1=obj;
    else if(filename.includes('base_lod2'))assets.b2=obj;
@@ -141,17 +145,22 @@ async function apply(entries){
    else continue;n++;
   }catch(e){console.error(filename,e)}
  }
- loadStatus='已读取 '+n+' 份 GLB（基础 3 份，可选地表 LOD 2 份）';
- $('status').textContent=loadStatus+'；远景复用地表纹理（如果纹理存在）';
+ loadStatus='已读取 '+n+' 份 GLB';
+ updateTerrainStatus();
  rebuild();
 }
 $('files').onchange=async event=>apply(await Promise.all([...event.target.files].map(async f=>[f.name,await f.arrayBuffer()])));
 async function autoLoad(){
  const entries=[];
- for(const f of ['base_lod1.glb','base_lod2.glb','terrain.glb','terrain_lod1.glb','terrain_lod2.glb']){
+ for(const f of ['base_lod1.glb','base_lod2.glb','terrain.glb','terrain_lod1.glb','terrain_lod2.glb','meadow_lod1.glb','meadow_lod2.glb','meadow_lod3.glb','meadow_lod4.glb']){
   try{const r=await fetch('./models/'+f);if(r.ok)entries.push([f,await r.arrayBuffer()])}catch{}
  }if(entries.length)await apply(entries);
 }
+function updateTerrainStatus(){
+ if(activeTop()&&!assets.m1){$('status').textContent='草地 GLB 尚未就绪：请在 models 中放 meadow_lod1.glb～meadow_lod4.glb，或使用上方文件选择导入。当前草地使用中性色代理，不能用于评估草地真实画质。';}
+ else $('status').textContent=loadStatus+(activeTop()?'；草地 LOD 已就绪':'；荒地资产已就绪');
+}
+$('terrainType').addEventListener('change',()=>{updateTerrainStatus();rebuild()});
 for(const b of document.querySelectorAll('[data-radius]'))b.addEventListener('click',()=>{radius=Number(b.dataset.radius);rebuild()});
 for(const id of ['scale','lift','near','mid','mode','rotateVar','baseOnly','terrainOnly','triangleBudget']){
  const elem=$(id);if(elem)elem.addEventListener('input',()=>dirty=true);
