@@ -40,10 +40,10 @@ try {
     } finally {$stream.Dispose()}
     $target=Join-Path $dest $destNames[$i]
     if (Test-Path -LiteralPath $target) { throw "Destination exists; refusing to overwrite: $target" }
-    $pairs+=@(@($src.FullName,$target))
+    $pairs += [pscustomobject]@{ Source = $src.FullName; Target = $target }
   }
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  foreach($pair in $pairs){ Copy-Item -LiteralPath $pair[0] -Destination $pair[1] }
+  foreach($pair in $pairs){ Copy-Item -LiteralPath $pair.Source -Destination $pair.Target }
   git -C $repo add -- experiments/hex-assembly-lod/models/meadow_lod1.glb experiments/hex-assembly-lod/models/meadow_lod2.glb experiments/hex-assembly-lod/models/meadow_lod3.glb experiments/hex-assembly-lod/models/meadow_lod4.glb
   if ($LASTEXITCODE -ne 0) { throw 'git add failed; verify .gitignore or permissions.' }
   Write-Host 'Prepared four meadow models. Review staged file sizes:'
