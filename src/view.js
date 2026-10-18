@@ -44,6 +44,7 @@ export class BoardView {
    this.composer.setSize(this.host.clientWidth||innerWidth,this.host.clientHeight||innerHeight);
  }
  this.quality=preset;
+ Object.assign(this.metrics,{frames:0,totalMs:0,lastTime:0,frameMs:0,fps:0,sampleCount:0});
  }
  getMetrics(){return {...this.metrics,preset:this.quality,renderer:this.renderer.capabilities.isWebGL2?'WebGL2':'WebGL',pixelRatio:this.renderer.getPixelRatio()};}
 
