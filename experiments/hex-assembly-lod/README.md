@@ -104,3 +104,21 @@ git switch main
 git pull --ff-only origin main
 py -m http.server 8000
 ```
+
+## v3.4：草地资产一次性入库（2026-10-19）
+
+已加入 `import-meadow-assets.ps1`，用于安全地把聊天中已经生成的 `Wanjie_Meadow_Viewer.zip` 的四档真实 GLB 导入此实验目录，避免重复手动改名复制。只需**一次**操作，将 4 份模型经 `git push` 上传后，其他克隆即可通过 `git pull` 获取。
+
+首次导入（在 repo 根目录运行）：
+
+```powershell
+git switch main
+git pull --ff-only origin main
+powershell -ExecutionPolicy Bypass -File .\experiments\hex-assembly-lod\import-meadow-assets.ps1
+git commit -m "assets: add four meadow LOD GLBs"
+git push origin main
+```
+
+脚本默认查找 `%USERPROFILE%\Downloads\Wanjie_Meadow_Viewer*.zip`。如果压缩包位于其他路径，调用时添加 `-Archive "完整路径"`。脚本会校验 glTF 标识、四个 GLB 的文件大小、现有追踪文件无修改、目标不存在，**不会**覆盖原有五个底盘/荒地 GLB。脚本本身不执行 commit/push，以便用户检查 staged 文件后再确认；需要本机 Git 提交者身份和 GitHub 推送权限。草地四档共约 21 MB，直接使用普通 Git；如要扩大美术资源库，需设计 Git LFS / 版本化资产下载机制。
+
+**当前远程仓库尚未包含这四个二进制文件**，原因是会话 GitHub 文件接口不能从本地容器读取并发送该大小的二进制资源。本方案是可核验的一次性过渡，不是已经完成纯 git pull 的资产交付。草地 LOD 的外观和模型底盘匹配仍未实机验收。草地默认缩放 1.00、高度 0.20（仅供试装），旧荒地仍为 1.86 / 0.145。
