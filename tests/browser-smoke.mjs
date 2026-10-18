@@ -30,6 +30,13 @@ try {
  await page.locator('#redo').click();
  if(!((await page.locator('#notice').textContent())||'').includes('重做成功'))throw Error('Redo did not complete');
  if(errors.length)throw Error(errors.join('\n'));
- await mkdir('test-artifacts',{recursive:true});await page.screenshot({path:'test-artifacts/board.png',fullPage:true});
+ await mkdir('test-artifacts',{recursive:true});
+ for(const angle of [55,70,85]){
+   await page.locator('[data-angle="'+angle+'"]').click();
+   await page.waitForTimeout(160);
+   await page.screenshot({path:'test-artifacts/board-'+angle+'.png',fullPage:true});
+ }
+ await page.locator('[data-angle="55"]').click();
+ await page.screenshot({path:'test-artifacts/board.png',fullPage:true});
  console.log('Browser startup, WebGL canvas, camera switching, editor click: PASS');
 } catch(e){console.error(e);process.exitCode=1;}finally{await browser?.close();server.kill();}
