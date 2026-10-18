@@ -37,6 +37,20 @@ try {
    await page.screenshot({path:'test-artifacts/board-'+angle+'.png',fullPage:true});
  }
  await page.locator('[data-angle="55"]').click();
+ await page.locator('[data-quality="standard"]').click();
+ await page.waitForTimeout(2600);
+ const standard=await page.evaluate(()=>window.wanjieRenderStats());
+ await page.screenshot({path:'test-artifacts/quality-standard.png',fullPage:true});
+ await page.locator('[data-quality="high"]').click();
+ await page.waitForTimeout(3000);
+ const high=await page.evaluate(()=>window.wanjieRenderStats());
+ await page.screenshot({path:'test-artifacts/quality-high.png',fullPage:true});
+ if(high.preset!=='high'||standard.preset!=='standard')throw Error('Render quality toggle did not apply');
+ if(!(standard.fps>0)&&!(high.fps>0))throw Error('Performance samples missing');
+ if(errors.length)throw Error(errors.join('\\n'));
+ const perf={environment:'GitHub Actions Chromium SwiftShader (software GPU), not representative of end-user hardware',standard,high};
+ await (await import('node:fs/promises')).writeFile('test-artifacts/performance.json',JSON.stringify(perf,null,2));
+ console.log('Measured standard/high renderer performance:',JSON.stringify(perf));
  await page.screenshot({path:'test-artifacts/board.png',fullPage:true});
  console.log('Browser startup, WebGL canvas, camera switching, editor click: PASS');
 } catch(e){console.error(e);process.exitCode=1;}finally{await browser?.close();server.kill();}
