@@ -23,6 +23,7 @@ const metrics=document.createElement('div');
 metrics.style.cssText='margin-top:8px;white-space:pre-line;color:#d6b47e;font:13px/1.5 monospace';
 $('stats').replaceWith(metrics);metrics.id='stats';
 let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh=0,loadStatus='默认占位模型';
+const lodHistory=new Map();const LOD_HYSTERESIS=0.12;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
 const safeNum=id=>Number($(id).value);
 const geometry=new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6);
 const soilGeometry=new THREE.CylinderGeometry(.855,.855,.035,6,1).rotateY(Math.PI/6);
@@ -55,7 +56,7 @@ function makeSet(lod,kind,obj,proxyGeom,proxyMat){
 }
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
- groups=[];tiles=hex(radius);
+ groups=[];tiles=hex(radius);lodHistory.clear();
  if(assets.t){const tm=collect(assets.t).find(m=>m.material?.map);
   if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
  }
@@ -80,11 +81,20 @@ function refresh(){
  visible.sort((a,b)=>a.dist-b.dist);
  // Budget is a safeguard, not a number-of-tiles cap. Use actual triangle costs.
  const levelCost=[0,1,2].map(l=>groups.filter(g=>g.lod===l).reduce((s,g)=>s+g.tri,0));
- const desired=visible.map(t=>({
-  ...t,
-  lod:$('mode').value!=='auto'?Number($('mode').value):
-    t.pixels>safeNum('near')?0:t.pixels>safeNum('mid')?1:2
- }));
+ const desired=visible.map(t=>{
+  let lod;
+  if($('mode').value!=='auto')lod=Number($('mode').value);
+  else {
+   const key=t.q+','+t.r,old=lodHistory.get(key);
+   const near=safeNum('near'),mid=Math.min(safeNum('mid'),near-1),h=LOD_HYSTERESIS;
+   if(old===0) lod=t.pixels<near*(1-h)?(t.pixels<mid*(1-h)?2:1):0;
+   else if(old===1) lod=t.pixels>near*(1+h)?0:t.pixels<mid*(1-h)?2:1;
+   else if(old===2) lod=t.pixels>near*(1+h)?0:t.pixels>mid*(1+h)?1:2;
+   else lod=t.pixels>near?0:t.pixels>mid?1:2;
+   lodHistory.set(key,lod);
+  }
+  return {...t,lod};
+ });
  const budget=Number($('triangleBudget')?.value||2000000);
  let remaining=budget;
  for(const t of desired){
@@ -118,6 +128,7 @@ function refresh(){
  '\n三角面预算：'+(budget/1000000).toFixed(1)+'M'+
  '\nDraw Calls：'+renderer.info.render.calls+
  '\n当前三角面：'+renderer.info.render.triangles+
+ '\nFPS（约）：'+fpsValue+'\nLOD 切换滞回：±12%'+
  '\n模型：'+loadStatus;
  dirty=false;
 }
@@ -154,8 +165,9 @@ const statClock={t:0};
 function tick(time){
  requestAnimationFrame(tick);
  orbit.update();
- if(dirty||time-lastRefresh>180){refresh();lastRefresh=time}
+ if(dirty||time-lastRefresh>90){refresh();lastRefresh=time}
  renderer.render(scene,camera);
+ fpsFrames++;if(time-fpsStart>=1000){fpsValue=Math.round(fpsFrames*1000/(time-fpsStart));fpsFrames=0;fpsStart=time}
  if(time-statClock.t>300){metrics.textContent=currentStats;statClock.t=time}
 }
 rebuild();autoLoad();requestAnimationFrame(tick);
