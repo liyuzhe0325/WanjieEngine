@@ -80,8 +80,6 @@ function refresh(){
   visible.push({...tile,dist,pixels});
  }
  visible.sort((a,b)=>a.dist-b.dist);
- // Budget is a safeguard, not a number-of-tiles cap. Use actual triangle costs.
- const levelCost=[0,1,2].map(l=>groups.filter(g=>g.lod===l).reduce((s,g)=>s+g.tri,0));
  // A tabletop-wide quality choice based on camera height avoids near/far strips.
  // Five zoom bands, backed by three currently available geometry assets.
  const heights=[4.0,7.0,12.0,20.0];
