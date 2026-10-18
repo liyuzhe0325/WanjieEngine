@@ -1,1 +1,128 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>万界文明｜六角装配与LOD实验</title><style>body{margin:0;background:#20272c;color:#eee;font:14px system-ui}canvas{display:block}aside{position:fixed;top:16px;left:16px;width:285px;max-height:calc(100vh - 52px);overflow:auto;padding:16px;background:#151a20ed;border:1px solid #45525c;border-radius:12px;z-index:2}h2{font-size:17px;margin:0 0 10px}small{color:#afb6bf}label{display:block;margin:12px 0 5px}input[type=range]{width:100%}button{background:#2c343e;color:white;border:1px solid #596575;border-radius:6px;padding:8px;cursor:pointer}button:hover{background:#455061}input[type=file]{max-width:100%}#stats{white-space:pre-line;color:#d6b47e;padding-top:12px}#status{white-space:pre-line;color:#add0b4;line-height:1.5}#tip{position:fixed;bottom:12px;right:12px;background:#151a20d0;padding:9px;border-radius:7px}</style><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script></head><body><aside><h2>万界文明 · 六角装配 / LOD</h2><small>独立实验，不替换游戏入口。默认显示程序化占位地块；选取真实 GLB 后切换为 Meshy 资产。</small><p><button data-radius="0">单格</button> <button data-radius="2">19 格</button> <button data-radius="3">37 格</button> <button data-radius="5">91 格</button> <button data-radius="8">217 格</button></p><label>导入真实 GLB（可同时选择三份）</label><input type="file" id="files" accept=".glb" multiple><small>可自动读取 models 中的三份 GLB。此处手选模型仍依赖 base_lod1.glb、base_lod2.glb、terrain.glb 文件名；近景保留原模，远景为代理网格。</small><label>地表缩放 <output id="scaleV">1.86</output></label><input id="scale" type="range" min="1.6" max="2.05" step="0.01" value="1.86"><label>地表高度 <output id="liftV">0.145</output></label><input id="lift" type="range" min=".03" max=".28" step=".005" value=".145"><label>LOD 屏幕阈值：近景 <output id="nearV">110</output> px</label><input id="near" type="range" min="50" max="280" value="110"><label>LOD 屏幕阈值：中景 <output id="midV">40</output> px</label><input id="mid" type="range" min="15" max="100" value="40"><label>LOD 模式</label><select id="mode"><option value="auto">自动</option><option value="0">近景</option><option value="1">中景</option><option value="2">远景</option></select><label><input type="checkbox" id="rotateVar" checked> 地表六向旋转变化</label><label><input type="checkbox" id="baseOnly"> 仅底盘</label><label><input type="checkbox" id="terrainOnly"> 仅地表</label><div id="status">程序化占位地块已就绪；真实模型可选加载。</div><div id="stats"></div><small>注意：这里的 LOD 是视觉层级。视野内对象数量随地图范围变化，但不代表世界模拟对象被销毁或停止结算。六向旋转只减少重复感，不等于产生新的地形资产。</small></aside><div id="tip">鼠标左键旋转 / 右键平移 / 滚轮缩放 · 使用本地 HTTP 服务</div><script type="module">import * as THREE from 'three';import{OrbitControls}from'three/addons/controls/OrbitControls.js';import{GLTFLoader}from'three/addons/loaders/GLTFLoader.js';const $=s=>document.getElementById(s);const sc=new THREE.Scene();sc.background=new THREE.Color('#28323b');const cam=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.05,400);cam.position.set(5,7,10);const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;document.body.append(renderer.domElement);const orbit=new OrbitControls(cam,renderer.domElement);orbit.target.set(0,0,0);orbit.enableDamping=true;sc.add(new THREE.HemisphereLight(0xe9eefc,0x35302a,2));const light=new THREE.DirectionalLight(0xffe8cd,3);light.position.set(6,12,9);sc.add(light);const root=new THREE.Group();sc.add(root);let radius=2,cells=[],assets={};const baseProxy=new THREE.Mesh(new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6),new THREE.MeshStandardMaterial({color:'#484849',roughness:1}));const soilProxy=new THREE.Mesh(new THREE.CylinderGeometry(.85,.85,.04,6,1).rotateY(Math.PI/6),new THREE.MeshStandardMaterial({color:'#8b7458',roughness:1}));function copy(t){return t.clone(true)}function radial(n){let o=[];for(let q=-n;q<=n;q++)for(let r=Math.max(-n,-q-n);r<=Math.min(n,-q+n);r++)o.push([q,r]);return o}function make(){root.clear();cells=[];for(const[q,r]of radial(radius)){let g=new THREE.Group();g.position.set(q*1.42,0,(r+q/2)*1.646);root.add(g);const options=[];for(let lod=0;lod<3;lod++){let slot=new THREE.Group();let base=copy(lod===0&&assets.b1?assets.b1:lod===1&&assets.b2?assets.b2:baseProxy);let top=copy(lod<2&&assets.t?assets.t:soilProxy);if(lod<2&&assets.t){top.scale.setScalar(+$('scale').value);top.position.y=+$('lift').value}else{top.position.y=.12}slot.add(base,top);g.add(slot);options.push({slot,base,top})}cells.push({g,options,q,r})}update()}function update(){const near=+$('near').value,mid=+$('mid').value;let counts=[0,0,0];for(const c of cells){const distance=cam.position.distanceTo(c.g.getWorldPosition(new THREE.Vector3()));const pixels=1.9*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(cam.fov)/2)*Math.max(.01,distance));const lod=$('mode').value==='auto'?(pixels>near?0:pixels>mid?1:2):+$('mode').value;counts[lod]++;c.options.forEach((o,i)=>{o.slot.visible=i===lod;o.base.visible=!$('terrainOnly').checked;o.top.visible=!$('baseOnly').checked;o.top.rotation.y=$('rotateVar').checked?((Math.abs(c.q*13+c.r*29+c.q*c.r*7)%6)*Math.PI/3):0;if(i<2&&assets.t){o.top.scale.setScalar(+$('scale').value);o.top.position.y=+$('lift').value}})}$('stats').textContent='格数：'+cells.length+'\nLOD0 / LOD1 / LOD2：'+counts.join(' / ')+'\nDraw Calls：'+renderer.info.render.calls+'\n三角面：'+renderer.info.render.triangles;for(const a of ['scale','lift','near','mid'])$(a+'V').textContent=$(a).value}for(const id of ['scale','lift','near','mid','mode','rotateVar','baseOnly','terrainOnly'])$(id).addEventListener('input',()=>{update()});document.querySelectorAll('button[data-radius]').forEach(b=>b.onclick=()=>{radius=+b.dataset.radius;make()});const loader=new GLTFLoader();const parser=async(name,buf)=>new Promise((yes,no)=>loader.parse(buf,'',g=>{let x=g.scene;x.traverse(n=>{if(n.isMesh){n.castShadow=false;n.receiveShadow=true}});yes(x)},no));async function apply(entries){let n=0;for(const [name,data]of entries){try{let ob=await parser(name,data);if(name.includes('lod1'))assets.b1=ob;else if(name.includes('lod2'))assets.b2=ob;else if(name.includes('terrain'))assets.t=ob;else continue;n++}catch(e){$('status').textContent+='\n加载 '+name+' 失败：'+e.message}}$('status').textContent='已加载真实 GLB：'+n+'/3；缺失部分仍使用占位模型。';make()}$('files').onchange=async e=>{let entries=await Promise.all([...e.target.files].map(async f=>[f.name,await f.arrayBuffer()]));apply(entries)};async function autoLoad(){const files=['base_lod1.glb','base_lod2.glb','terrain.glb'];const entries=[];for(const f of files){try{let r=await fetch('./models/'+f);if(r.ok)entries.push([f,await r.arrayBuffer()])}catch(e){}}if(entries.length)apply(entries)}addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});function tick(){requestAnimationFrame(tick);orbit.update();update();renderer.render(sc,cam)}make();autoLoad();tick();</script></body></html>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>万界文明｜六角装配与LOD实验</title><style>body{margin:0;background:#20272c;color:#eee;font:14px system-ui}canvas{display:block}aside{position:fixed;top:16px;left:16px;width:285px;max-height:calc(100vh - 52px);overflow:auto;padding:16px;background:#151a20ed;border:1px solid #45525c;border-radius:12px;z-index:2}h2{font-size:17px;margin:0 0 10px}small{color:#afb6bf}label{display:block;margin:12px 0 5px}input[type=range]{width:100%}button{background:#2c343e;color:white;border:1px solid #596575;border-radius:6px;padding:8px;cursor:pointer}button:hover{background:#455061}input[type=file]{max-width:100%}#stats{white-space:pre-line;color:#d6b47e;padding-top:12px}#status{white-space:pre-line;color:#add0b4;line-height:1.5}#tip{position:fixed;bottom:12px;right:12px;background:#151a20d0;padding:9px;border-radius:7px}</style><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script></head><body><aside><h2>万界文明 · 六角装配 / LOD</h2><small>独立实验，不替换游戏入口。默认显示程序化占位地块；选取真实 GLB 后切换为 Meshy 资产。</small><p><button data-radius="0">单格</button> <button data-radius="2">19 格</button> <button data-radius="3">37 格</button> <button data-radius="5">91 格</button> <button data-radius="8">217 格</button></p><label>导入真实 GLB（可同时选择三份）</label><input type="file" id="files" accept=".glb" multiple><small>可自动读取 models 中的三份 GLB。此处手选模型仍依赖 base_lod1.glb、base_lod2.glb、terrain.glb 文件名；近景保留原模，远景为代理网格。</small><label>地表缩放 <output id="scaleV">1.86</output></label><input id="scale" type="range" min="1.6" max="2.05" step="0.01" value="1.86"><label>地表高度 <output id="liftV">0.145</output></label><input id="lift" type="range" min=".03" max=".28" step=".005" value=".145"><label>LOD 屏幕阈值：近景 <output id="nearV">110</output> px</label><input id="near" type="range" min="50" max="280" value="110"><label>LOD 屏幕阈值：中景 <output id="midV">40</output> px</label><input id="mid" type="range" min="15" max="100" value="40"><label>LOD 模式</label><select id="mode"><option value="auto">自动</option><option value="0">近景</option><option value="1">中景</option><option value="2">远景</option></select><label><input type="checkbox" id="rotateVar" checked> 地表六向旋转变化</label><label><input type="checkbox" id="baseOnly"> 仅底盘</label><label><input type="checkbox" id="terrainOnly"> 仅地表</label><div id="status">程序化占位地块已就绪；真实模型可选加载。</div><div id="stats"></div><small>注意：这里的 LOD 是视觉层级。视野内对象数量随地图范围变化，但不代表世界模拟对象被销毁或停止结算。六向旋转只减少重复感，不等于产生新的地形资产。</small></aside><div id="tip">鼠标左键旋转 / 右键平移 / 滚轮缩放 · 使用本地 HTTP 服务</div><script type="module">import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const $=id=>document.getElementById(id);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#28323b');
+const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.05,500);
+camera.position.set(5,7,10);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=false;
+renderer.info.autoReset=true;
+document.body.append(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.target.set(0,0,0);controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xe9eefc,0x35302a,2));
+const light=new THREE.DirectionalLight(0xffe8cd,2.5);light.position.set(6,12,9);scene.add(light);
+const root=new THREE.Group();scene.add(root);
+const proxyGeo=new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6);
+const soilGeo=new THREE.CylinderGeometry(.85,.85,.04,6,1).rotateY(Math.PI/6);
+const proxyMat=new THREE.MeshStandardMaterial({color:'#484849',roughness:1});
+const soilMat=new THREE.MeshStandardMaterial({color:'#8b7458',roughness:1});
+const dummy=new THREE.Object3D(), frustum=new THREE.Frustum(), projection=new THREE.Matrix4();
+const tmp=new THREE.Vector3(), coords=[];
+const POOL0=3,POOL1=8;
+let radius=2,assets={},pools=[[],[]],instBase,instTop,lastDraw=0,visibleCount=0,lodCounts=[0,0,0];
+const loader=new GLTFLoader();
+const copy=t=>t.clone(true);
+function radial(n){let out=[];for(let q=-n;q<=n;q++)for(let r=Math.max(-n,-q-n);r<=Math.min(n,-q+n);r++)out.push({q,r,x:q*1.42,z:(r+q/2)*1.646});return out}
+function rotation(c){return $('rotateVar').checked?(Math.abs(c.q*13+c.r*29+c.q*c.r*7)%6)*Math.PI/3:0}
+function rebuild(){
+ root.clear();coords.splice(0,coords.length,...radial(radius));
+ // The 2 instanced meshes remain 2 draw calls regardless of the cell count.
+ instBase=new THREE.InstancedMesh(proxyGeo,proxyMat,coords.length);
+ instTop=new THREE.InstancedMesh(soilGeo,soilMat,coords.length);
+ instBase.frustumCulled=false;instTop.frustumCulled=false;
+ instBase.count=0;instTop.count=0;
+ root.add(instBase,instTop);pools=[[],[]];
+ for(let lod=0;lod<2;lod++){
+  for(let i=0;i<(lod===0?POOL0:POOL1);i++){
+   const slot=new THREE.Group();
+   const base=copy((lod===0?assets.b1:assets.b2)||({clone:()=>new THREE.Mesh(proxyGeo,proxyMat)}));
+   const top=copy(assets.t||({clone:()=>new THREE.Mesh(soilGeo,soilMat)}));
+   slot.add(base,top);slot.visible=false;root.add(slot);
+   pools[lod].push({slot,base,top});
+  }
+ }
+ refresh();
+}
+function refresh(){
+ camera.updateMatrixWorld();
+ projection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
+ frustum.setFromProjectionMatrix(projection);
+ const near=+$('near').value,mid=+$('mid').value;
+ const desired=[[],[]],distant=[];
+ visibleCount=0;
+ for(const c of coords){
+  tmp.set(c.x,0,c.z);
+  if(!frustum.intersectsSphere(new THREE.Sphere(tmp,1.25)))continue;
+  visibleCount++;
+  const d=camera.position.distanceTo(tmp);
+  const pixels=1.9*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*Math.max(.01,d));
+  let lod=$('mode').value==='auto'?(pixels>near?0:pixels>mid?1:2):+$('mode').value;
+  // Forced modes also respect hard geometry limits.
+  const rec={...c,d,pixels};
+  if(lod===0)desired[0].push(rec);
+  else if(lod===1)desired[1].push(rec);
+  else distant.push(rec);
+ }
+ desired[0].sort((a,b)=>a.d-b.d);
+ desired[1].sort((a,b)=>a.d-b.d);
+ const use0=desired[0].splice(0,POOL0);
+ const use1=desired[1].splice(0,POOL1);
+ // Spill high-detail candidates to lower-detail pools rather than exceeding limits.
+ desired[1].push(...desired[0]);desired[1].sort((a,b)=>a.d-b.d);
+ use1.push(...desired[1].splice(0,Math.max(0,POOL1-use1.length)));
+ distant.push(...desired[1]);
+ lodCounts=[use0.length,use1.length,distant.length];
+ const chosen=[use0,use1];
+ for(let lod=0;lod<2;lod++)pools[lod].forEach((p,i)=>{
+  const c=chosen[lod][i];p.slot.visible=!!c;if(!c)return;
+  p.slot.position.set(c.x,0,c.z);p.base.visible=!$('terrainOnly').checked;
+  p.top.visible=!$('baseOnly').checked;
+  p.top.rotation.y=rotation(c);
+  p.top.scale.setScalar(assets.t?+$('scale').value:1);
+  p.top.position.y=assets.t?+$('lift').value:.12;
+ });
+ instBase.count=distant.length;instTop.count=distant.length;
+ for(let i=0;i<distant.length;i++){
+  const c=distant[i];
+  dummy.position.set(c.x,0,c.z);dummy.rotation.set(0,0,0);dummy.scale.set(1,1,1);dummy.updateMatrix();instBase.setMatrixAt(i,dummy.matrix);
+  dummy.position.y=.12;dummy.rotation.set(0,rotation(c),0);dummy.updateMatrix();instTop.setMatrixAt(i,dummy.matrix);
+ }
+ instBase.instanceMatrix.needsUpdate=true;instTop.instanceMatrix.needsUpdate=true;
+ instBase.visible=!$('terrainOnly').checked;instTop.visible=!$('baseOnly').checked;
+ for(const id of ['scale','lift','near','mid'])$(id+'V').textContent=$(id).value;
+}
+function showStats(){
+ $('stats').textContent='地图格数：'+coords.length+' / 视野内：'+visibleCount+
+ '\n实际高模 / 中模 / 代理：'+lodCounts.join(' / ')+
+ '\n近景预算：'+POOL0+' 格；中景预算：'+POOL1+' 格'+
+ '\nDraw Calls：'+renderer.info.render.calls+
+ '\n三角面：'+renderer.info.render.triangles+
+ '\n提示：近中景预算为安全上限，并非最终画质标准';
+}
+for(const id of ['scale','lift','near','mid','mode','rotateVar','baseOnly','terrainOnly'])$(id).addEventListener('input',refresh);
+document.querySelectorAll('button[data-radius]').forEach(b=>b.onclick=()=>{radius=+b.dataset.radius;rebuild()});
+function parse(name,buf){return new Promise((ok,no)=>loader.parse(buf,'',g=>{g.scene.traverse(o=>{if(o.isMesh){o.castShadow=false;o.receiveShadow=false}});ok(g.scene)},no))}
+async function apply(entries){
+ let n=0;for(const [name,buf]of entries){try{const obj=await parse(name,buf);if(name.includes('lod1'))assets.b1=obj;else if(name.includes('lod2'))assets.b2=obj;else if(name.includes('terrain'))assets.t=obj;else continue;n++}catch(e){$('status').textContent+=' 加载错误 '+name+': '+e.message}}
+ $('status').textContent='已识别 GLB：'+n+'/3；近中景采用真实模型；远景为实例化代理。';rebuild();
+}
+$('files').onchange=async e=>apply(await Promise.all([...e.target.files].map(async f=>[f.name,await f.arrayBuffer()])));
+async function autoLoad(){
+ const entries=[];
+ for(const name of ['base_lod1.glb','base_lod2.glb','terrain.glb'])try{const res=await fetch('./models/'+name);if(res.ok)entries.push([name,await res.arrayBuffer()])}catch(e){}
+ if(entries.length)apply(entries);
+}
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);refresh()});
+let frames=0;
+function tick(t){
+ requestAnimationFrame(tick);controls.update();
+ // 10 Hz LOD schedule; animation/render continue at frame rate.
+ if(t-lastDraw>100){refresh();lastDraw=t}
+ renderer.render(scene,camera);
+ if(++frames%30===0)showStats();
+}
+rebuild();autoLoad();requestAnimationFrame(tick);</script></body></html>
