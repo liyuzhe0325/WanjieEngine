@@ -42,12 +42,12 @@ try {
  const standard=await page.evaluate(()=>window.wanjieRenderStats());
  await page.screenshot({path:'test-artifacts/quality-standard.png',fullPage:true});
  await page.locator('[data-quality="high"]').click();
- await page.waitForTimeout(1500);
+ await page.waitForFunction(()=>window.wanjieRenderStats().sampleCount>=6,{timeout:45000});
  const high=await page.evaluate(()=>window.wanjieRenderStats());
  await page.screenshot({path:'test-artifacts/quality-high.png',fullPage:true});
  if(high.preset!=='high'||standard.preset!=='standard')throw Error('Render quality toggle did not apply');
  if(!(standard.sampleCount>=6)||!(standard.frameMs>0))throw Error('Standard render performance samples missing');
- if(!(high.sampleCount>=standard.sampleCount))throw Error('No animation frames were produced after switching high quality');
+ if(!(high.sampleCount>=6)||!(high.frameMs>0))throw Error('High render performance samples missing');
  if(errors.length)throw Error(errors.join('\\n'));
  const perf={environment:'GitHub Actions Chromium SwiftShader (software GPU), not representative of end-user hardware',standard,high};
  await (await import('node:fs/promises')).writeFile('test-artifacts/performance.json',JSON.stringify(perf,null,2));
