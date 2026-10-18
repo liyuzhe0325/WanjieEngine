@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies if lockfile exists
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then npm ci; fi
+      - name: Syntax check
+        shell: bash
+        run: |
+          if [ -d src ]; then
+            find src -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -r -n1 node --check
+          fi
+      - name: Run tests
+        shell: bash
+        run: |
+          if [ -f package.json ]; then npm test; else echo "No package.json yet: bootstrap check only"; fi
