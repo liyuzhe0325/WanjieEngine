@@ -1,5 +1,6 @@
 import {createWorld,cell,history,saveWorld,loadWorld} from './world.js';
 import {BoardView} from './view.js';
+import {AssetLibrary} from './asset-loader.js';
 let world=createWorld(),actions=history(world),view=new BoardView(document.getElementById('viewport'),world),tool='inspect';
 const $=id=>document.getElementById(id);function message(s){$('notice').textContent=s;}
 function selection(x,z){const c=cell(world,x,z);$('selected').innerHTML=`坐标 <b>${x+1}, ${z+1}</b><br>地形：${{forest:'森林',meadow:'原野',rock:'山地',water:'水域',blight:'腐化'}[c.type]} · 高度 ${c.height.toFixed(2)}<br>道路：${c.road?'有':'无'} · 建筑：${c.structure||'无'}`;}
@@ -9,3 +10,15 @@ document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{tool=b.datase
 $('undo').onclick=()=>{let d=actions.undo();if(d){view.rebuildAround(d.x,d.z);selection(d.x,d.z);message('撤销成功');}};$('redo').onclick=()=>{let d=actions.redo();if(d){view.rebuildAround(d.x,d.z);selection(d.x,d.z);message('重做成功');}};$('save').onclick=()=>{const blob=new Blob([saveWorld(world)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='wanjie-world.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);message('存档已导出');};$('load').onclick=()=>$('file').click();$('file').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let w=loadWorld(await f.text());if(w.size!==world.size)throw Error('此版本要求地图尺寸一致');world=w;actions=history(world);view.resetWorld(world);message('读取完成');$('selected').textContent='点击地图选择地块';}catch(err){message('读取失败：'+err.message);}e.target.value='';};$('reset').onclick=()=>{if(!confirm('确定重新生成地图？当前未保存的修改将丢失。'))return;world=createWorld();actions=history(world);view.resetWorld(world);$('selected').textContent='点击地图选择地块';message('地图已重置');};
 window.addEventListener('keydown',e=>{if(e.target.matches('input,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();(e.shiftKey?$('redo'):$('undo')).click();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){$('redo').click();}if('123'.includes(e.key)){document.querySelector(`[data-angle="${({1:55,2:70,3:85})[e.key]}"]`)?.click();}const pan={w:[0,-28],s:[0,28],a:[28,0],d:[-28,0]};if(pan[e.key.toLowerCase()])view.panFrom(...pan[e.key.toLowerCase()]);});
 message('准备就绪。右键拖动 · 滚轮缩放 · 左键选择/编辑');
+async function loadPreviewAsset(){
+ try{
+  const response=await fetch('./assets/catalog.json');if(!response.ok)throw Error('catalog HTTP '+response.status);
+  const library=new AssetLibrary(await response.json());
+  if(!library.has('pieces/obelisk'))return;
+  const model=await library.instantiate('pieces/obelisk');
+  view.setPreviewModel(model);
+  document.body.dataset.previewAsset='pieces/obelisk';
+  message('棋盘已加载 glTF 示范雕塑模型');
+ }catch(error){console.error('GLTF preview failed:',error);message('示范模型载入失败：'+error.message);}
+}
+loadPreviewAsset();

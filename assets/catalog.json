@@ -1,4 +1,11 @@
 {
   "version": 1,
-  "assets": []
+  "assets": [
+    {
+      "id": "pieces/obelisk",
+      "type": "gltf",
+      "url": "./assets/obelisk.gltf",
+      "scale": 1
+    }
+  ]
 }
