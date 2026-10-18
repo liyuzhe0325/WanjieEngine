@@ -70,3 +70,11 @@ blender --background --python experiments/hex-assembly-lod/blender_make_terrain_
 ```
 
 生成近似 4500 面的 `terrain_lod1.glb` 与 1400 面的 `terrain_lod2.glb`。材质与 UV 随 GLB 导出，但 Blender 简化器可能损伤极细碎草/石几何，**务必在浏览器和 Blender 中检查效果**。脚本只生成简化资产，不执行完整法线贴图重烘焙；烘焙仍需后续独立工序。
+
+## v3.1：LOD 防抖与浏览器 FPS
+
+- 为每个轴坐标地块跟踪上次视觉 LOD，使用屏幕尺寸阈值 ±12% 的滞回区间，减少镜头轻微移动时频繁切换。
+- LOD 更新间隔由 180 ms 调整到 90 ms（接近 11 Hz），使缩放响应更及时；GPU 仍逐帧渲染。
+- 侧栏显示浏览器主循环近似 FPS，便于后续与性能预算比较；不代表 GPU 详细计时。
+- **还未实现 cross-fade / dither fade**。截图中的近远景材质和雕刻边框差异仍可能形成明显的带状边界；下一步应通过底盘 LOD2、材质匹配与 GPU 过渡改进。
+- 不能仅凭地表面数降低判断优化成功，需要在目标设备上对比放大/缩小的 FPS、帧时间以及视角变化时的闪烁。
