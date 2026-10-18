@@ -61,7 +61,7 @@ function rebuild(){
  }
  for(let level=0;level<3;level++){
   groups.push(...makeSet(level,'base',level===0?assets.b1:level===1?assets.b2:null,geometry,stoneMaterial));
-  groups.push(...makeSet(level,'top',level<2?assets.t:null,soilGeometry,soilMaterial));
+  groups.push(...makeSet(level,'top',level===0?assets.t:level===1?(assets.t1||assets.t):assets.t2,soilGeometry,soilMaterial));
  }
  dirty=true;
 }
@@ -102,7 +102,7 @@ function refresh(){
     matrix.makeTranslation(t.x,0,t.z);
     if(g.kind==='top'){
      tempMatrix.makeRotationY(turn(t));matrix.multiply(tempMatrix);
-     if(l<2&&assets.t){
+     if(l<2&&(assets.t||assets.t1)){
       tempMatrix.makeTranslation(0,safeNum('lift'),0);matrix.multiply(tempMatrix);
       tempMatrix.makeScale(safeNum('scale'),safeNum('scale'),safeNum('scale'));matrix.multiply(tempMatrix);
      }else{tempMatrix.makeTranslation(0,.12,0);matrix.multiply(tempMatrix)}
@@ -126,20 +126,22 @@ async function apply(entries){
  let n=0;
  for(const [filename,data] of entries){
   try{const obj=await load(filename,data);
-   if(filename.includes('lod1'))assets.b1=obj;
-   else if(filename.includes('lod2'))assets.b2=obj;
+   if(filename.includes('terrain_lod1'))assets.t1=obj;
+   else if(filename.includes('terrain_lod2'))assets.t2=obj;
+   else if(filename.includes('base_lod1'))assets.b1=obj;
+   else if(filename.includes('base_lod2'))assets.b2=obj;
    else if(filename.includes('terrain'))assets.t=obj;
    else continue;n++;
   }catch(e){console.error(filename,e)}
  }
- loadStatus='已读取 '+n+'/3 GLB';
+ loadStatus='已读取 '+n+' 份 GLB（基础 3 份，可选地表 LOD 2 份）';
  $('status').textContent=loadStatus+'；远景复用地表纹理（如果纹理存在）';
  rebuild();
 }
 $('files').onchange=async event=>apply(await Promise.all([...event.target.files].map(async f=>[f.name,await f.arrayBuffer()])));
 async function autoLoad(){
  const entries=[];
- for(const f of ['base_lod1.glb','base_lod2.glb','terrain.glb']){
+ for(const f of ['base_lod1.glb','base_lod2.glb','terrain.glb','terrain_lod1.glb','terrain_lod2.glb']){
   try{const r=await fetch('./models/'+f);if(r.ok)entries.push([f,await r.arrayBuffer()])}catch{}
  }if(entries.length)await apply(entries);
 }
