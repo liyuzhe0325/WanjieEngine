@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {SIZE,CHUNK,cell,key} from './world.js';
 const C={meadow:0x8c9275,forest:0x566f5d,rock:0xaaa394,water:0x477b83,blight:0x725d76};
 const std=(color,roughness=.96,metalness=0)=>new THREE.MeshStandardMaterial({color,roughness,metalness});
@@ -10,6 +14,9 @@ function makePiece(group,x,y,z){let g=new THREE.Group();g.position.set(x,y,z);gr
 export class BoardView {
  constructor(host,world){this.host=host;this.world=world;this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x242b2b);this.scene.fog=new THREE.FogExp2(0x242b2b,.003);this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.outputColorSpace=THREE.SRGBColorSpace;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.12;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;host.append(this.renderer.domElement);this.camera=new THREE.OrthographicCamera(-18,18,12,-12,.1,160);this.focus=new THREE.Vector3(0,0,0);this.angle=55;this.azimuth=23;this.scale=28;
  this.scene.add(new THREE.HemisphereLight(0xe7e5dd,0x50433c,1.75));let sun=new THREE.DirectionalLight(0xffe2b9,2.45);sun.position.set(-14,28,11);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-23;sun.shadow.camera.right=23;sun.shadow.camera.top=23;sun.shadow.camera.bottom=-23;sun.shadow.normalBias=.025;this.scene.add(sun);this.scene.add(sun.target);this.sun=sun;
+ this.quality='standard';this.composer=null;this.gtao=null;
+ this.metrics={frames:0,totalMs:0,lastTime:0,frameMs:0,fps:0,drawCalls:0,triangles:0};
+ this.renderer.info.autoReset=true;
  this.root=new THREE.Group();this.root.position.set(-world.size/2,0,-world.size/2);this.scene.add(this.root);this.chunks=new Map();this.shared={};const platform=new THREE.Group();this.root.add(platform);const mid=world.size/2;
  const stepped=[{extent:1.12,thick:.16,y:-.66,material:MAT.wood},{extent:.91,thick:.15,y:-.51,material:MAT.gold},{extent:.72,thick:.24,y:-.34,material:MAT.wood},{extent:.32,thick:.08,y:-.17,material:MAT.edge}];
  for(const stage of stepped){const m=mesh(platform,geoBox(world.size+stage.extent,stage.thick,world.size+stage.extent),stage.material,mid,stage.y,mid);m.castShadow=false;}
@@ -21,6 +28,25 @@ export class BoardView {
  height(x,z){const x0=Math.max(0,Math.min(this.world.size-1,Math.floor(x))),z0=Math.max(0,Math.min(this.world.size-1,Math.floor(z)));return cell(this.world,x0,z0)?.height||0;}
  buildGrid(){for(const child of [...this.grid.children]){this.grid.remove(child);child.geometry?.dispose();child.material?.dispose();}const material=new THREE.LineBasicMaterial({color:0x302a23,transparent:true,opacity:.22});for(let x=0;x<=this.world.size;x++){const arr=[];for(let z=0;z<=this.world.size*3;z++){const zz=z/3;arr.push(new THREE.Vector3(x,.09+this.height(Math.max(0,x-.001),Math.min(zz,this.world.size-.001)),zz));}this.grid.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(arr),material));}for(let z=0;z<=this.world.size;z++){const arr=[];for(let x=0;x<=this.world.size*3;x++){const xx=x/3;arr.push(new THREE.Vector3(xx,.09+this.height(Math.min(xx,this.world.size-.001),Math.max(0,z-.001)),z));}this.grid.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(arr),material));}}
  gridVisible(v){this.grid.visible=v;}
+ setQuality(preset){
+ if(preset!=='standard'&&preset!=='high')throw Error('Unknown rendering preset');
+ if(preset===this.quality)return;
+ if(preset==='high'){
+   if(!this.composer){
+     this.composer=new EffectComposer(this.renderer);
+     this.composer.addPass(new RenderPass(this.scene,this.camera));
+     this.gtao=new GTAOPass(this.scene,this.camera,this.host.clientWidth||innerWidth,this.host.clientHeight||innerHeight);
+     this.gtao.output=GTAOPass.OUTPUT.Default;
+     this.gtao.blendIntensity=0.75;
+     this.composer.addPass(this.gtao);
+     this.composer.addPass(new OutputPass());
+   }
+   this.composer.setSize(this.host.clientWidth||innerWidth,this.host.clientHeight||innerHeight);
+ }
+ this.quality=preset;
+ }
+ getMetrics(){return {...this.metrics,preset:this.quality,renderer:this.renderer.capabilities.isWebGL2?'WebGL2':'WebGL',pixelRatio:this.renderer.getPixelRatio()};}
+
  setPreviewModel(model){this.previewModel=model;this.rebuildChunk(1,1);}
  chunkId(x,z){return `${Math.floor(x/CHUNK)},${Math.floor(z/CHUNK)}`;}
  rebuildAll(){for(let z=0;z<this.world.size;z+=CHUNK)for(let x=0;x<this.world.size;x+=CHUNK)this.rebuildChunk(Math.floor(x/CHUNK),Math.floor(z/CHUNK));}
@@ -40,11 +66,18 @@ export class BoardView {
  if(cx===1&&cz===1){const y=cell(this.world,12,12).height;if(this.previewModel){const copy=this.previewModel.clone(true);copy.position.set(12.5,y,12.5);copy.traverse(o=>{if(o.isMesh){o.userData.externalAsset=true;o.castShadow=true;o.receiveShadow=true;}});g.add(copy);}else makePiece(g,12.5,y,12.5);}
  }
  select(x,z){const c=cell(this.world,x,z);if(!c)return;this.selected=[x,z];this.highlight.visible=true;this.highlight.position.set(x+.5,c.height+.13,z+.5);}
- resize(){const w=this.host.clientWidth||innerWidth,h=this.host.clientHeight||innerHeight;const aspect=w/h;this.camera.left=-this.scale*aspect/2;this.camera.right=this.scale*aspect/2;this.camera.top=this.scale/2;this.camera.bottom=-this.scale/2;this.camera.updateProjectionMatrix();this.renderer.setSize(w,h,false);}
+ resize(){const w=this.host.clientWidth||innerWidth,h=this.host.clientHeight||innerHeight;const aspect=w/h;this.camera.left=-this.scale*aspect/2;this.camera.right=this.scale*aspect/2;this.camera.top=this.scale/2;this.camera.bottom=-this.scale/2;this.camera.updateProjectionMatrix();this.renderer.setSize(w,h,false);if(this.composer)this.composer.setSize(w,h);}
  positionCamera(){const elev=THREE.MathUtils.degToRad(this.angle),az=THREE.MathUtils.degToRad(this.azimuth),dist=60;this.camera.position.copy(this.focus).add(new THREE.Vector3(Math.sin(az)*Math.cos(elev)*dist,Math.sin(elev)*dist,Math.cos(az)*Math.cos(elev)*dist));this.camera.up.set(0,1,0);this.camera.lookAt(this.focus);this.camera.updateMatrixWorld();}
  setAngle(n){this.angle=n;this.positionCamera();} zoomBy(delta){this.scale=THREE.MathUtils.clamp(this.scale*Math.exp(delta*.001),6,50);this.resize();}
  panFrom(dx,dy){const worldWidth=this.camera.right-this.camera.left,worldHeight=this.camera.top-this.camera.bottom;const right=new THREE.Vector3().setFromMatrixColumn(this.camera.matrix,0);const up=new THREE.Vector3().setFromMatrixColumn(this.camera.matrix,1);right.y=0;up.y=0;up.normalize();this.focus.addScaledVector(right,-dx/this.host.clientWidth*worldWidth);this.focus.addScaledVector(up,dy/this.host.clientHeight*worldHeight/Math.max(.35,Math.sin(THREE.MathUtils.degToRad(this.angle))));this.focus.x=THREE.MathUtils.clamp(this.focus.x,-this.world.size*.45,this.world.size*.45);this.focus.z=THREE.MathUtils.clamp(this.focus.z,-this.world.size*.45,this.world.size*.45);this.positionCamera();}
  pick(clientX,clientY){const rect=this.renderer.domElement.getBoundingClientRect(),mouse=new THREE.Vector2((clientX-rect.left)/rect.width*2-1,-(clientY-rect.top)/rect.height*2+1),r=new THREE.Raycaster();r.setFromCamera(mouse,this.camera);const terrain=[];for(const g of this.chunks.values())for(const child of g.children)if(child.userData.terrain)terrain.push(child);const hits=r.intersectObjects(terrain,false);if(!hits.length)return null;let p=hits[0].point;const x=Math.floor(p.x+this.world.size/2),z=Math.floor(p.z+this.world.size/2);return cell(this.world,x,z)?{x,z}:null;}
- animate(){if(!this.running)return;this.renderer.render(this.scene,this.camera);requestAnimationFrame(this.animate);}
+ animate(t=0){if(!this.running)return;
+ const m=this.metrics;
+ if(m.lastTime){const dt=t-m.lastTime;if(dt>0&&dt<250){m.totalMs+=dt;m.frames++;if(m.frames>=60){m.frameMs=m.totalMs/m.frames;m.fps=1000/m.frameMs;m.totalMs=0;m.frames=0;}}}
+ m.lastTime=t;
+ if(this.quality==='high'&&this.composer)this.composer.render();else this.renderer.render(this.scene,this.camera);
+ m.drawCalls=this.renderer.info.render.calls;m.triangles=this.renderer.info.render.triangles;
+ requestAnimationFrame(this.animate);
+ }
  resetWorld(w){this.world=w;for(let g of this.chunks.values()){this.root.remove(g);g.traverse(o=>{if(o.geometry&&!o.userData.externalAsset)o.geometry.dispose()});}this.chunks.clear();this.rebuildAll();this.highlight.visible=false;this.selected=null;}
  }
