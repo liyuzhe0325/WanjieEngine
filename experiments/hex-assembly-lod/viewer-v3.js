@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {hexDisk} from '../../src/hex-space.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
@@ -34,7 +35,7 @@ for(let i=0;i<uv.count;i++){uv.setXY(i,positions.getX(i)/1.9+.5,positions.getZ(i
 uv.needsUpdate=true;
 const stoneMaterial=new THREE.MeshStandardMaterial({color:'#4e4b47',roughness:1});
 let soilMaterial=new THREE.MeshStandardMaterial({color:'#a07e5d',roughness:1});
-function hex(n){const out=[];for(let q=-n;q<=n;q++)for(let r=Math.max(-n,-q-n);r<=Math.min(n,-q+n);r++)out.push({q,r,x:1.42*q,z:1.646*(r+q/2)});return out}
+
 function turn(t){return $('rotateVar').checked?Math.abs(t.q*13+t.r*29+t.q*t.r*7)%6*Math.PI/3:0}
 function collect(obj){
  const meshes=[];if(!obj)return meshes;
@@ -57,7 +58,7 @@ function makeSet(lod,kind,obj,proxyGeom,proxyMat){
 }
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
- groups=[];tiles=hex(radius);
+ groups=[];tiles=hexDisk(radius);
  if(assets.t){const tm=collect(assets.t).find(m=>m.material?.map);
   if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
  }
