@@ -15,7 +15,7 @@ export class BoardView {
  constructor(host,world){this.host=host;this.world=world;this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x242b2b);this.scene.fog=new THREE.FogExp2(0x242b2b,.003);this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.outputColorSpace=THREE.SRGBColorSpace;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.12;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;host.append(this.renderer.domElement);this.camera=new THREE.OrthographicCamera(-18,18,12,-12,.1,160);this.focus=new THREE.Vector3(0,0,0);this.angle=55;this.azimuth=23;this.scale=28;
  this.scene.add(new THREE.HemisphereLight(0xe7e5dd,0x50433c,1.75));let sun=new THREE.DirectionalLight(0xffe2b9,2.45);sun.position.set(-14,28,11);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-23;sun.shadow.camera.right=23;sun.shadow.camera.top=23;sun.shadow.camera.bottom=-23;sun.shadow.normalBias=.025;this.scene.add(sun);this.scene.add(sun.target);this.sun=sun;
  this.quality='standard';this.composer=null;this.gtao=null;
- this.metrics={frames:0,totalMs:0,lastTime:0,frameMs:0,fps:0,sampleCount:0,drawCalls:0,triangles:0};
+ this.metrics={frames:0,totalMs:0,lastTime:0,frameMs:0,fps:0,sampleCount:0,drawCalls:0,triangles:0,renderedFrames:0};
  this.renderer.info.autoReset=true;
  this.root=new THREE.Group();this.root.position.set(-world.size/2,0,-world.size/2);this.scene.add(this.root);this.chunks=new Map();this.shared={};const platform=new THREE.Group();this.root.add(platform);const mid=world.size/2;
  const stepped=[{extent:1.12,thick:.16,y:-.66,material:MAT.wood},{extent:.91,thick:.15,y:-.51,material:MAT.gold},{extent:.72,thick:.24,y:-.34,material:MAT.wood},{extent:.32,thick:.08,y:-.17,material:MAT.edge}];
@@ -44,7 +44,7 @@ export class BoardView {
    this.composer.setSize(this.host.clientWidth||innerWidth,this.host.clientHeight||innerHeight);
  }
  this.quality=preset;
- Object.assign(this.metrics,{frames:0,totalMs:0,lastTime:0,frameMs:0,fps:0,sampleCount:0});
+ Object.assign(this.metrics,{frames:0,totalMs:0,lastTime:0,frameMs:0,fps:0,sampleCount:0,renderedFrames:0});
  }
  getMetrics(){return {...this.metrics,preset:this.quality,renderer:this.renderer.capabilities.isWebGL2?'WebGL2':'WebGL',pixelRatio:this.renderer.getPixelRatio()};}
 
@@ -77,6 +77,7 @@ export class BoardView {
  if(m.lastTime){const dt=t-m.lastTime;if(Number.isFinite(dt)&&dt>0){m.totalMs+=dt;m.frames++;m.sampleCount++;if(m.frames>=6){m.frameMs=m.totalMs/m.frames;m.fps=1000/m.frameMs;m.totalMs=0;m.frames=0;}}}
  m.lastTime=t;
  if(this.quality==='high'&&this.composer)this.composer.render();else this.renderer.render(this.scene,this.camera);
+ m.renderedFrames++;
  m.drawCalls=this.renderer.info.render.calls;m.triangles=this.renderer.info.render.triangles;
  requestAnimationFrame(this.animate);
  }
