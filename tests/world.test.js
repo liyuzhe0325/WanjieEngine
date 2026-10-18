@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {createWorld,cell,applyTool,history,saveWorld,loadWorld,validateWorld} from '../src/world.js';
+test('seeded world is deterministic',()=>assert.deepEqual(createWorld(10),createWorld(10)));
+test('unique cells and dimensions',()=>{const w=createWorld();assert.equal(w.cells.length,576);assert.equal(cell(w,23,23).x,23);assert.equal(cell(w,-1,0),null);assert.equal(validateWorld(w),true);});
+test('apply, undo, redo, save',()=>{const w=createWorld(),h=history(w),start=cell(w,3,4).type;h.apply(3,4,'blight');assert.equal(cell(w,3,4).type,'blight');h.undo();assert.equal(cell(w,3,4).type,start);h.redo();assert.equal(cell(w,3,4).type,'blight');assert.deepEqual(loadWorld(saveWorld(w)),w);});
+test('reject corrupted saves',()=>{const w=createWorld();w.cells[2].type='hacked';assert.throws(()=>loadWorld(JSON.stringify(w)));});
+test('does not mutate out of bounds',()=>{const w=createWorld();assert.equal(applyTool(w,80,80,'forest'),null);});

@@ -14,17 +14,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install dependencies if lockfile exists
-        shell: bash
-        run: |
-          if [ -f package-lock.json ]; then npm ci; fi
       - name: Syntax check
-        shell: bash
         run: |
-          if [ -d src ]; then
-            find src -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -r -n1 node --check
-          fi
-      - name: Run tests
-        shell: bash
-        run: |
-          if [ -f package.json ]; then npm test; else echo "No package.json yet: bootstrap check only"; fi
+          find src tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -r -n1 node --check
+      - name: Unit tests
+        run: npm test
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test dependency
+        run: npm install --no-save --package-lock=false playwright@1.56.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: WebGL browser smoke test
+        run: node tests/browser-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-screenshot
+          path: test-artifacts/
+          if-no-files-found: ignore
