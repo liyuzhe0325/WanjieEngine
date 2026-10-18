@@ -102,7 +102,7 @@ function refresh(){
     matrix.makeTranslation(t.x,0,t.z);
     if(g.kind==='top'){
      tempMatrix.makeRotationY(turn(t));matrix.multiply(tempMatrix);
-     if(l<2&&(assets.t||assets.t1)){
+     if((l===0&&assets.t)||(l===1&&(assets.t1||assets.t))||(l===2&&assets.t2)){
       tempMatrix.makeTranslation(0,safeNum('lift'),0);matrix.multiply(tempMatrix);
       tempMatrix.makeScale(safeNum('scale'),safeNum('scale'),safeNum('scale'));matrix.multiply(tempMatrix);
      }else{tempMatrix.makeTranslation(0,.12,0);matrix.multiply(tempMatrix)}
