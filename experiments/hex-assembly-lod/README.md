@@ -86,3 +86,21 @@ blender --background --python experiments/hex-assembly-lod/blender_make_terrain_
 - 预算不足时全视野统一降低几何档位，避免出现不连续的高低模带状分界；这一方式在非常大的视野下有画质代价。
 - OrbitControls 调整了阻尼、旋转速度、缩放速度、最小/最大角度。仍没有真正跨模型 dissolve/crossfade、GPU 定时和自动质量调节。
 - 更新方式：在仓库根目录 `git pull origin main`；浏览器强制刷新。模型文件不变。
+
+## v3.3：荒地与草地同一实验入口
+
+正式测试入口仍为 `/experiments/hex-assembly-lod/`，不再需要打开另一套 `tools/meadow-lod-viewer` 页面。保留旧页面仅为历史实验，不再作为优先入口。
+
+- “地表材质族”切换荒地 / 草地，共享现有 Hex 坐标、1/19/37/91/217 格、InstancedMesh、镜头控制、全局 LOD、FPS 统计。
+- 草地模型可自动从 `models/` 加载，也能通过页面导入：`meadow_lod1.glb`（约 40981 面）、`meadow_lod2.glb`（9249）、`meadow_lod3.glb`（2715）、`meadow_lod4.glb`（730）。
+- **GitHub 此次只提交了代码，未提交草地二进制模型。** 用户原有 `models/` 的五个 GLB 不受影响。缺失草地时显示明确警告并使用代理几何，不应误认为真实草地。
+- 目前草地共用旧地表“缩放/高度”校准滑块，因此默认值未必贴合石底座；先在单块模式手动校准，再检查 19 格接缝。
+- 这仍是实验用四套草地简化几何与全局镜头档位映射，未做到草地颜色图远景烘焙、精确边界重拓扑和 GPU 基准测试。请检查 UV、地表穿插和 19 格重复纹理。
+
+本地同步（确保先处于 main）：
+
+```powershell
+git switch main
+git pull --ff-only origin main
+py -m http.server 8000
+```
