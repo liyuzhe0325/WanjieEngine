@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {fetchTerrainManifest} from '../../src/terrain-assets.js';
-import {createHexWorld,createHexWorldStore} from '../../src/hex-world.js';
+import {createHexWorld,createHexWorldStore,validateHexWorld} from '../../src/hex-world.js';
 import {projectHexTiles} from '../../src/hex-view-projection.js';
 import {groupTerrainTiles,tileTerrainCounts} from '../../src/hex-terrain-batches.js';
 
@@ -32,6 +32,39 @@ let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh
 let hexWorld=createHexWorldStore(createHexWorld(radius,'wasteland'));
 const visualTiles=()=>projectHexTiles(hexWorld.snapshot());
 function resizeWorld(nextRadius){radius=nextRadius;hexWorld=createHexWorldStore(createHexWorld(radius,activeTop()?'meadow':'wasteland'));}
+const saveNotice=message=>$('saveStatus').textContent=message;
+function downloadWorld(){
+ try{
+  const snapshot=hexWorld.snapshot();validateHexWorld(snapshot);
+  const json=JSON.stringify(snapshot,null,2),url=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='wanjie-hex-world.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  saveNotice('已导出 '+snapshot.cells.length+' 格，修订 '+hexWorld.revision+'；导出后请妥善保存文件。');
+ }catch(error){saveNotice('导出失败：'+error.message);}
+}
+async function importWorld(file){
+ try {
+  if(!file)return;
+  const raw=await file.text(),next=JSON.parse(raw);
+  validateHexWorld(next); // Never replace the live world on malformed input.
+  const before=hexWorld.snapshot();
+  const previous=new Map(before.cells.map(c=>[c.q+','+c.r,c]));
+  const changed=next.cells.filter(c=>{
+   const old=previous.get(c.q+','+c.r);
+   return !old||old.terrain!==c.terrain||old.building!==c.building;
+  }).length;
+  const resized=next.radius!==radius;
+  hexWorld.replace(next);radius=next.radius;
+  $('terrainType').value=next.cells[0]?.terrain||'wasteland';
+  for(const button of document.querySelectorAll('[data-radius]'))button.disabled=false;
+  rebuild();updateTerrainStatus();
+  saveNotice('导入成功：'+next.cells.length+' 格；与当前世界相比 '+changed+' 格地块不同'+(resized?'；地图半径已更新':'')+'。');
+ }catch(error){saveNotice('导入失败，原世界未修改：'+error.message);}
+ finally{$('worldFile').value='';}
+}
+$('exportWorld').addEventListener('click',downloadWorld);
+$('importWorld').addEventListener('click',()=>$('worldFile').click());
+$('worldFile').addEventListener('change',event=>importWorld(event.target.files?.[0]));
 const activeTop=()=> $('terrainType').value==='meadow';
 let globalBand=0;const LOD_HYSTERESIS=0.10;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
 const safeNum=id=>Number($(id).value);
