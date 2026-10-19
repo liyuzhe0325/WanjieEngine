@@ -65,3 +65,16 @@
 - 跨文件修改尽量作为单主题提交直接落在 main；避免新建长期功能分支，允许小范围临时工作区但不形成新长期开发线。
 - 禁止以提交或语法检查替代真实浏览器和 GPU 测试。
 - 每次实质迁移更新此台账：已迁移、待迁移、回归结果、风险。
+
+
+## 7. 实施记录：2026-10-19 第一批模块迁入
+
+**已提交到 main，尚未切换任何默认入口**：
+- `src/hex-space.js` 和 `tests/hex-space.test.js`，来自 `refactor/hex-space-contract-001`；提供轴坐标、距离、邻接、磁盘生成与 217 格等计数测试。
+- `src/world-store.js` 和 `tests/world-store.test.js`，来自 `foundation/controlled-world-state-001`；只为现存方格 `world.js` 提供受控写入，**不是未来六角世界最终存储实现**。
+
+**暂不动**：根目录编辑器、六角微雕 LOD viewer、GLB 文件/清单、历史分支、卡牌游戏入口。
+
+**验证状态**：文件已推送，Node 单元测试仍需运行确认；暂不宣称浏览器验收或正式整合完成。
+
+**下一步**：检查 hex-space 坐标尺度与 v3.5 viewer 的一致性，以及连接共享边的数据定义；再把 world-store 从方格隔离实验收敛到正式六角世界，期间不以旧 world schema 冒充新 hex schema。
