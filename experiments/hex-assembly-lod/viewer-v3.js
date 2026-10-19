@@ -153,7 +153,10 @@ async function apply(entries,epoch){
  const staged={};
  let n=0;
  for(const [filename,data] of entries){
-  if(!loadEpoch.isCurrent(epoch))return;
+  if(!loadEpoch.isCurrent(epoch)){
+   disposeUnretainedModels(Object.values(staged),Object.values(assets),[soilMaterial]);
+   return;
+  }
   const slot=MODEL_SLOTS[filename];
   if(!slot)continue;
   try{staged[slot]=await load(filename,data);n++}
@@ -161,7 +164,7 @@ async function apply(entries,epoch){
  }
  // A late auto-load or import is not permitted to overwrite a newer batch.
  if(!loadEpoch.isCurrent(epoch)){
-  disposeUnretainedModels(Object.values(staged),Object.values(assets));
+  disposeUnretainedModels(Object.values(staged),Object.values(assets),[soilMaterial]);
   return;
  }
  const previous=assets;
