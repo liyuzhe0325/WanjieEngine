@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {fetchTerrainManifest} from '../../src/terrain-assets.js';
+import {createHexWorld,createHexWorldStore} from '../../src/hex-world.js';
+import {hexPosition} from '../../src/hex-space.js';
 
 const $=id=>document.getElementById(id);
 const scene=new THREE.Scene();scene.background=new THREE.Color('#28323b');
@@ -25,6 +27,10 @@ const metrics=document.createElement('div');
 metrics.style.cssText='margin-top:8px;white-space:pre-line;color:#d6b47e;font:13px/1.5 monospace';
 $('stats').replaceWith(metrics);metrics.id='stats';
 let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh=0,loadStatus='默认占位模型';
+// The viewer consumes the authoritative axial hex-world snapshot.
+let hexWorld=createHexWorldStore(createHexWorld(radius,'wasteland'));
+const visualTiles=()=>hexWorld.snapshot().cells.map(({q,r,terrain})=>({q,r,terrain,...hexPosition(q,r)}));
+function resizeWorld(nextRadius){radius=nextRadius;hexWorld=createHexWorldStore(createHexWorld(radius,activeTop()?'meadow':'wasteland'));}
 const activeTop=()=> $('terrainType').value==='meadow';
 const topForLOD=l=>activeTop()? (assets['m'+(l+1)]||assets.m4||assets.m3||assets.m2||assets.m1||null) : [assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
 let globalBand=0;const LOD_HYSTERESIS=0.10;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
@@ -37,7 +43,6 @@ for(let i=0;i<uv.count;i++){uv.setXY(i,positions.getX(i)/1.9+.5,positions.getZ(i
 uv.needsUpdate=true;
 const stoneMaterial=new THREE.MeshStandardMaterial({color:'#4e4b47',roughness:1});
 let soilMaterial=new THREE.MeshStandardMaterial({color:'#a07e5d',roughness:1});
-function hex(n){const out=[];for(let q=-n;q<=n;q++)for(let r=Math.max(-n,-q-n);r<=Math.min(n,-q+n);r++)out.push({q,r,x:1.42*q,z:1.646*(r+q/2)});return out}
 function turn(t){return $('rotateVar').checked?Math.abs(t.q*13+t.r*29+t.q*t.r*7)%6*Math.PI/3:0}
 function collect(obj){
  const meshes=[];if(!obj)return meshes;
@@ -60,7 +65,7 @@ function makeSet(lod,kind,obj,proxyGeom,proxyMat){
 }
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
- groups=[];tiles=hex(radius);
+ groups=[];tiles=visualTiles();
  const referenceTop=activeTop()?assets.m1:assets.t;
  if(referenceTop){const tm=collect(referenceTop).find(m=>m.material?.map);
   if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
@@ -122,7 +127,7 @@ function refresh(){
    g.inst.instanceMatrix.needsUpdate=true;
   }
  }
- currentStats='地图总格：'+tiles.length+' / 视野内：'+visible.length+
+ currentStats='世界修订：'+hexWorld.revision+' / 地表：'+(activeTop()?'草地':'荒地')+'\n地图总格：'+tiles.length+' / 视野内：'+visible.length+
  '\nLOD 0 / 1 / 2 / 3：'+counts.join(' / ')+
  '\n三角面预算：'+(budget/1000000).toFixed(1)+'M'+
  '\nDraw Calls：'+renderer.info.render.calls+
@@ -175,7 +180,7 @@ $('files').onchange=async event=>{
    else {assets.t=obj;delete assets.t1;delete assets.t2}
    accepted++;
    if(triangles>200000){
-    radius=0;
+    resizeWorld(0);
     $('mode').value='0';
     $('status').textContent='已导入 '+name+'，'+Math.round(triangles).toLocaleString()+' 三角面。为了避免高模瞬间铺满棋盘，已自动切换单格模式。';
    }else $('status').textContent='已导入 '+name+'，'+Math.round(triangles).toLocaleString()+' 三角面。';
@@ -212,8 +217,9 @@ function updateTerrainStatus(){
  if(activeTop()&&!assets.m1){$('status').textContent='草地 GLB 尚未就绪：请在 models 中放 meadow_lod1.glb～meadow_lod4.glb，或使用上方文件选择导入。当前草地使用中性色代理，不能用于评估草地真实画质。';}
  else $('status').textContent=loadStatus+(activeTop()?(assets.m2?'；草地多级 LOD 已就绪':'；已加载草地单一模型，尚未生成真正 LOD'):'；荒地资产已就绪');
 }
-$('terrainType').addEventListener('change',()=>{const meadow=activeTop();$('scale').value=meadow?'1.00':'1.86';$('lift').value=meadow?'0.20':'0.145';$('scaleV').textContent=$('scale').value;$('liftV').textContent=$('lift').value;updateTerrainStatus();rebuild()});
-for(const b of document.querySelectorAll('[data-radius]'))b.addEventListener('click',()=>{radius=Number(b.dataset.radius);rebuild()});
+$('terrainType').addEventListener('change',()=>{const meadow=activeTop();
+ for(const tile of hexWorld.snapshot().cells)hexWorld.setTerrain(tile.q,tile.r,meadow?'meadow':'wasteland');$('scale').value=meadow?'1.00':'1.86';$('lift').value=meadow?'0.20':'0.145';$('scaleV').textContent=$('scale').value;$('liftV').textContent=$('lift').value;updateTerrainStatus();rebuild()});
+for(const b of document.querySelectorAll('[data-radius]'))b.addEventListener('click',()=>{resizeWorld(Number(b.dataset.radius));rebuild()});
 for(const id of ['scale','lift','near','mid','mode','rotateVar','baseOnly','terrainOnly','triangleBudget']){
  const elem=$(id);if(elem)elem.addEventListener('input',()=>dirty=true);
 }
