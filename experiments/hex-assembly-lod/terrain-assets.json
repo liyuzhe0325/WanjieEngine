@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "hex-base",
+      "type": "base",
+      "lods": [
+        "base_lod1.glb",
+        "base_lod2.glb"
+      ],
+      "placement": {
+        "layer": "base",
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "wasteland",
+      "type": "surface",
+      "lods": [
+        "terrain.glb",
+        "terrain_lod1.glb",
+        "terrain_lod2.glb"
+      ],
+      "placement": {
+        "layer": "surface",
+        "scale": [
+          1.86,
+          1.86,
+          1.86
+        ],
+        "offset": [
+          0,
+          0.145,
+          0
+        ]
+      }
+    },
+    {
+      "id": "meadow",
+      "type": "surface",
+      "lods": [
+        "meadow_lod1.glb",
+        "meadow_lod2.glb",
+        "meadow_lod3.glb",
+        "meadow_lod4.glb"
+      ],
+      "placement": {
+        "layer": "surface",
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "offset": [
+          0,
+          0.2,
+          0
+        ]
+      }
+    }
+  ]
+}
