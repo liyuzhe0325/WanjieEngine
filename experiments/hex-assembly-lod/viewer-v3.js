@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {hexDisk} from '../../src/hex-space.js';
+import {createLoadEpoch} from '../../src/load-epoch.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
@@ -19,6 +20,7 @@ scene.add(new THREE.HemisphereLight(0xe9eefc,0x37332a,2));
 const sun=new THREE.DirectionalLight(0xffe9cf,2.4);sun.position.set(7,12,9);scene.add(sun);
 const stage=new THREE.Group();scene.add(stage);
 const loader=new GLTFLoader();
+const loadEpoch=createLoadEpoch();
 const cameraPoint=new THREE.Vector3(),origin=new THREE.Vector3(),matrix=new THREE.Matrix4(),tempMatrix=new THREE.Matrix4();
 const frustum=new THREE.Frustum(),projection=new THREE.Matrix4(),ball=new THREE.Sphere(new THREE.Vector3(),1.15);
 const metrics=document.createElement('div');
@@ -142,28 +144,42 @@ function refresh(){
  dirty=false;
 }
 function load(name,buf){return new Promise((yes,no)=>loader.parse(buf,'',g=>yes(g.scene),no))}
-async function apply(entries){
+const MODEL_SLOTS={
+ 'base_lod1.glb':'b1','base_lod2.glb':'b2','terrain.glb':'t',
+ 'terrain_lod1.glb':'t1','terrain_lod2.glb':'t2'
+};
+async function apply(entries,epoch){
+ const staged={};
  let n=0;
  for(const [filename,data] of entries){
-  try{const obj=await load(filename,data);
-   if(filename.includes('terrain_lod1'))assets.t1=obj;
-   else if(filename.includes('terrain_lod2'))assets.t2=obj;
-   else if(filename.includes('base_lod1'))assets.b1=obj;
-   else if(filename.includes('base_lod2'))assets.b2=obj;
-   else if(filename.includes('terrain'))assets.t=obj;
-   else continue;n++;
-  }catch(e){console.error(filename,e)}
+  if(!loadEpoch.isCurrent(epoch))return;
+  const slot=MODEL_SLOTS[filename];
+  if(!slot)continue;
+  try{staged[slot]=await load(filename,data);n++}
+  catch(e){console.error(filename,e)}
  }
+ // A late auto-load or import is not permitted to overwrite a newer batch.
+ if(!loadEpoch.isCurrent(epoch))return;
+ assets={...assets,...staged};
  loadStatus='已读取 '+n+' 份 GLB（基础 3 份，可选地表 LOD 2 份）';
  $('status').textContent=loadStatus+'；远景复用地表纹理（如果纹理存在）';
  rebuild();
 }
-$('files').onchange=async event=>apply(await Promise.all([...event.target.files].map(async f=>[f.name,await f.arrayBuffer()])));
+$('files').onchange=async event=>{
+ const epoch=loadEpoch.begin();
+ const files=[...event.target.files];
+ const entries=await Promise.all(files.map(async f=>[f.name,await f.arrayBuffer()]));
+ if(loadEpoch.isCurrent(epoch))await apply(entries,epoch);
+ event.target.value='';
+};
 async function autoLoad(){
+ const epoch=loadEpoch.begin();
  const entries=[];
- for(const f of ['base_lod1.glb','base_lod2.glb','terrain.glb','terrain_lod1.glb','terrain_lod2.glb']){
+ for(const f of Object.keys(MODEL_SLOTS)){
+  if(!loadEpoch.isCurrent(epoch))return;
   try{const r=await fetch('./models/'+f);if(r.ok)entries.push([f,await r.arrayBuffer()])}catch{}
- }if(entries.length)await apply(entries);
+ }
+ if(entries.length&&loadEpoch.isCurrent(epoch))await apply(entries,epoch);
 }
 for(const b of document.querySelectorAll('[data-radius]'))b.addEventListener('click',()=>{radius=Number(b.dataset.radius);rebuild()});
 for(const id of ['scale','lift','near','mid','mode','rotateVar','baseOnly','terrainOnly','triangleBudget']){
