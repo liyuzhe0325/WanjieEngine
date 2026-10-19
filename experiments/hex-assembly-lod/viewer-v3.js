@@ -118,6 +118,7 @@ function rebuild(){
   for(const family of ['wasteland','meadow'])groups.push(...makeSet(level,'top',topForFamily(family,level),soilGeometry,proxyMaterial[family],family));
  }
  dirty=true;
+ updateTerrainStatus();
 }
 function refresh(){
  camera.updateMatrixWorld();
@@ -185,7 +186,6 @@ function refresh(){
  '\n相机离地高度：'+height.toFixed(2)+' / 全局缩放档：'+(globalBand+1)+'/5'+
  '\nFPS（约）：'+fpsValue+'\nLOD 切换滞回：±10%'+
  '\n当前可见代理地块：底盘 '+proxyBase+' / 荒地 '+proxyByFamily.wasteland+' / 草地 '+proxyByFamily.meadow+'\n模型：'+loadStatus;
- updateTerrainStatus();
  dirty=false;
 }
 function load(name,buf){return new Promise((yes,no)=>loader.parse(buf,'',g=>yes(g.scene),no))}
@@ -267,12 +267,12 @@ async function autoLoad(){
 function updateTerrainStatus(){
  const counts=tileTerrainCounts(visualTiles());
  const names={wasteland:'荒地',meadow:'草地'};
- const slotNames={wasteland:['t / t1','t1 / t','t2','t2'],meadow:['m1 / m2 / m3 / m4','m2 / m4 / m3 / m1','m3 / m4 / m2 / m1','m4 / m3 / m2 / m1']};
  const families=['wasteland','meadow'].map(family=>{
   const slots=Array.from({length:4},(_,lod)=>{
    const model=topForFamily(family,lod);
    const requested=family==='wasteland'?['terrain 主模型','terrain LOD1','terrain LOD2','terrain LOD2'][lod]:'meadow LOD'+(lod+1);
-   return requested+': '+(model?'GLB'+(family==='meadow'&&!assets['m'+(lod+1)]?'（回退模型）':''):'缺失→代理');
+   const exact=family==='meadow'?Boolean(assets['m'+(lod+1)]):lod===0?Boolean(assets.t):lod===1?Boolean(assets.t1):Boolean(assets.t2);
+   return requested+': '+(model?'GLB'+(!exact?'（复用/回退，非独立 LOD）':''):'缺失→代理');
   });
   return names[family]+' '+counts[family]+' 格\n'+slots.join('；');
  });
