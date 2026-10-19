@@ -91,12 +91,13 @@ function collect(obj){
 }
 function makeSet(lod,kind,obj,proxyGeom,proxyMat,family=null){
  let desc=collect(obj);
+ const isProxy=desc.length===0;
  if(!desc.length)desc=[{geometry:proxyGeom,material:proxyMat,local:new THREE.Matrix4(),tri:proxyGeom.index.count/3}];
  return desc.map(p=>{
   const inst=new THREE.InstancedMesh(p.geometry,p.material,tiles.length);
   inst.frustumCulled=false;inst.count=0;inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   stage.add(inst);
-  return {...p,inst,kind,lod,family,instanceTiles:[]};
+  return {...p,inst,kind,lod,family,isProxy,instanceTiles:[]};
  });
 }
 function rebuild(){
@@ -168,6 +169,13 @@ function refresh(){
   }
   if(g.inst.count)g.inst.instanceMatrix.needsUpdate=true;
  }
+ const proxyByFamily={wasteland:0,meadow:0};
+ let proxyBase=0;
+ for(const g of groups){
+  if(!g.isProxy||g.inst.count===0)continue;
+  if(g.kind==='base')proxyBase=Math.max(proxyBase,g.inst.count);
+  else proxyByFamily[g.family]=Math.max(proxyByFamily[g.family],g.inst.count);
+ }
  const terrainTotals=tileTerrainCounts(tiles);
  currentStats='世界修订：'+hexWorld.revision+' / 地表：荒地 '+terrainTotals.wasteland+' 草地 '+terrainTotals.meadow+'\n地图总格：'+tiles.length+' / 视野内：'+visible.length+
  '\nLOD 0 / 1 / 2 / 3：'+counts.join(' / ')+
@@ -176,7 +184,8 @@ function refresh(){
  '\n当前三角面：'+renderer.info.render.triangles+
  '\n相机离地高度：'+height.toFixed(2)+' / 全局缩放档：'+(globalBand+1)+'/5'+
  '\nFPS（约）：'+fpsValue+'\nLOD 切换滞回：±10%'+
- '\n模型：'+loadStatus;
+ '\n当前可见代理地块：底盘 '+proxyBase+' / 荒地 '+proxyByFamily.wasteland+' / 草地 '+proxyByFamily.meadow+'\n模型：'+loadStatus;
+ updateTerrainStatus();
  dirty=false;
 }
 function load(name,buf){return new Promise((yes,no)=>loader.parse(buf,'',g=>yes(g.scene),no))}
@@ -256,8 +265,20 @@ async function autoLoad(){
 }
 
 function updateTerrainStatus(){
- if(activeTop()&&!assets.m1){$('status').textContent='草地 GLB 尚未就绪：请在 models 中放 meadow_lod1.glb～meadow_lod4.glb，或使用上方文件选择导入。当前草地使用中性色代理，不能用于评估草地真实画质。';}
- else $('status').textContent=loadStatus+(activeTop()?(assets.m2?'；草地多级 LOD 已就绪':'；已加载草地单一模型，尚未生成真正 LOD'):'；荒地资产已就绪');
+ const counts=tileTerrainCounts(visualTiles());
+ const names={wasteland:'荒地',meadow:'草地'};
+ const slotNames={wasteland:['t / t1','t1 / t','t2','t2'],meadow:['m1 / m2 / m3 / m4','m2 / m4 / m3 / m1','m3 / m4 / m2 / m1','m4 / m3 / m2 / m1']};
+ const families=['wasteland','meadow'].map(family=>{
+  const slots=Array.from({length:4},(_,lod)=>{
+   const model=topForFamily(family,lod);
+   const requested=family==='wasteland'?['terrain 主模型','terrain LOD1','terrain LOD2','terrain LOD2'][lod]:'meadow LOD'+(lod+1);
+   return requested+': '+(model?'GLB'+(family==='meadow'&&!assets['m'+(lod+1)]?'（回退模型）':''):'缺失→代理');
+  });
+  return names[family]+' '+counts[family]+' 格\n'+slots.join('；');
+ });
+ const bases=['b1','b2'].map((k,i)=>'底盘 LOD'+(i+1)+': '+(assets[k]?'GLB':'缺失→代理'));
+ bases.push('底盘 LOD3/4: 无独立模型→代理');
+ $('status').textContent=loadStatus+'\n'+families.join('\n')+'\n'+bases.join('；')+'\n注意：GLB 回退不等于拥有独立 LOD；程序代理不代表真实资产质量。';
 }
 $('terrainType').addEventListener('change',()=>{const meadow=activeTop();
  if(!$('paintMode')?.checked)for(const tile of hexWorld.snapshot().cells)hexWorld.setTerrain(tile.q,tile.r,meadow?'meadow':'wasteland');$('scale').value=meadow?'1.00':'1.86';$('lift').value=meadow?'0.20':'0.145';$('scaleV').textContent=$('scale').value;$('liftV').textContent=$('lift').value;updateTerrainStatus();rebuild()});
