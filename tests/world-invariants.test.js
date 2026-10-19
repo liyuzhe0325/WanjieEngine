@@ -22,3 +22,9 @@ test('normal editing and undo/redo preserve model identity',()=>{
  h.redo();assert.equal(cell(w,1,2).structure,'castle');
  assert.equal(validateWorld(w),true);
 });
+
+test('rejects shuffled array slots even when coordinates remain unique',()=>{
+ const w=createWorld(),first=w.cells[0],second=w.cells[1];
+ [w.cells[0],w.cells[1]]=[second,first];
+ assert.throws(()=>validateWorld(w),/Cell index mismatch/);
+});
