@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {hexDisk} from '../../src/hex-space.js';
 import {createLoadEpoch} from '../../src/load-epoch.js';
+import {disposeUnretainedModels} from '../../src/model-resource-lifetime.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
@@ -159,11 +160,17 @@ async function apply(entries,epoch){
   catch(e){console.error(filename,e)}
  }
  // A late auto-load or import is not permitted to overwrite a newer batch.
- if(!loadEpoch.isCurrent(epoch))return;
+ if(!loadEpoch.isCurrent(epoch)){
+  disposeUnretainedModels(Object.values(staged),Object.values(assets));
+  return;
+ }
+ const previous=assets;
  assets={...assets,...staged};
  loadStatus='已读取 '+n+' 份 GLB（基础 3 份，可选地表 LOD 2 份）';
  $('status').textContent=loadStatus+'；远景复用地表纹理（如果纹理存在）';
  rebuild();
+ // Instances are removed in rebuild() before their former model resources are freed.
+ disposeUnretainedModels(Object.values(previous),Object.values(assets),[soilMaterial]);
 }
 $('files').onchange=async event=>{
  const epoch=loadEpoch.begin();
