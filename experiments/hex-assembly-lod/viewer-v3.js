@@ -227,7 +227,27 @@ function updateTerrainStatus(){
  else $('status').textContent=loadStatus+(activeTop()?(assets.m2?'；草地多级 LOD 已就绪':'；已加载草地单一模型，尚未生成真正 LOD'):'；荒地资产已就绪');
 }
 $('terrainType').addEventListener('change',()=>{const meadow=activeTop();
- for(const tile of hexWorld.snapshot().cells)hexWorld.setTerrain(tile.q,tile.r,meadow?'meadow':'wasteland');$('scale').value=meadow?'1.00':'1.86';$('lift').value=meadow?'0.20':'0.145';$('scaleV').textContent=$('scale').value;$('liftV').textContent=$('lift').value;updateTerrainStatus();rebuild()});
+ if(!$('paintMode')?.checked)for(const tile of hexWorld.snapshot().cells)hexWorld.setTerrain(tile.q,tile.r,meadow?'meadow':'wasteland');$('scale').value=meadow?'1.00':'1.86';$('lift').value=meadow?'0.20':'0.145';$('scaleV').textContent=$('scale').value;$('liftV').textContent=$('lift').value;updateTerrainStatus();rebuild()});
+// Click on a terrain instance to paint a single authoritative hex cell.
+const paintRaycaster=new THREE.Raycaster(),paintPointer=new THREE.Vector2();
+let pointerStart=null;
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.button===0)pointerStart={x:e.clientX,y:e.clientY};});
+renderer.domElement.addEventListener('pointerup',e=>{
+ if(e.button!==0||!pointerStart)return;
+ const movement=Math.hypot(e.clientX-pointerStart.x,e.clientY-pointerStart.y);pointerStart=null;
+ if(movement>5||!$('paintMode')?.checked)return;
+ const bounds=renderer.domElement.getBoundingClientRect();
+ paintPointer.set((e.clientX-bounds.left)/bounds.width*2-1,-(e.clientY-bounds.top)/bounds.height*2+1);
+ paintRaycaster.setFromCamera(paintPointer,camera);
+ const intersections=paintRaycaster.intersectObjects(groups.filter(g=>g.inst.count>0).map(g=>g.inst),false);
+ for(const hit of intersections){
+  const group=groups.find(g=>g.inst===hit.object);
+  const tile=group?.instanceTiles[hit.instanceId];
+  if(!tile)continue;
+  if(hexWorld.setTerrain(tile.q,tile.r,$('terrainType').value)){rebuild();updateTerrainStatus();}
+  return;
+ }
+});
 for(const b of document.querySelectorAll('[data-radius]'))b.addEventListener('click',()=>{resizeWorld(Number(b.dataset.radius));rebuild()});
 for(const id of ['scale','lift','near','mid','mode','rotateVar','baseOnly','terrainOnly','triangleBudget']){
  const elem=$(id);if(elem)elem.addEventListener('input',()=>dirty=true);
