@@ -4,6 +4,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {fetchTerrainManifest} from '../../src/terrain-assets.js';
 import {createHexWorld,createHexWorldStore} from '../../src/hex-world.js';
 import {projectHexTiles} from '../../src/hex-view-projection.js';
+import {groupTerrainTiles,tileTerrainCounts} from '../../src/hex-terrain-batches.js';
 
 const $=id=>document.getElementById(id);
 const scene=new THREE.Scene();scene.background=new THREE.Color('#28323b');
@@ -32,7 +33,6 @@ let hexWorld=createHexWorldStore(createHexWorld(radius,'wasteland'));
 const visualTiles=()=>projectHexTiles(hexWorld.snapshot());
 function resizeWorld(nextRadius){radius=nextRadius;hexWorld=createHexWorldStore(createHexWorld(radius,activeTop()?'meadow':'wasteland'));}
 const activeTop=()=> $('terrainType').value==='meadow';
-const topForLOD=l=>activeTop()? (assets['m'+(l+1)]||assets.m4||assets.m3||assets.m2||assets.m1||null) : [assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
 let globalBand=0;const LOD_HYSTERESIS=0.10;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
 const safeNum=id=>Number($(id).value);
 const geometry=new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6);
@@ -42,7 +42,10 @@ const uv=soilGeometry.attributes.uv,positions=soilGeometry.attributes.position;
 for(let i=0;i<uv.count;i++){uv.setXY(i,positions.getX(i)/1.9+.5,positions.getZ(i)/1.7+.5)}
 uv.needsUpdate=true;
 const stoneMaterial=new THREE.MeshStandardMaterial({color:'#4e4b47',roughness:1});
-let soilMaterial=new THREE.MeshStandardMaterial({color:'#a07e5d',roughness:1});
+const proxyMaterial={wasteland:new THREE.MeshStandardMaterial({color:'#a07e5d',roughness:1}),meadow:new THREE.MeshStandardMaterial({color:'#578450',roughness:1})};
+const terrainScale=family=>family==='meadow'?1:safeNum('scale');
+const terrainLift=family=>family==='meadow'?.20:safeNum('lift');
+const topForFamily=(family,l)=>family==='meadow'?(assets['m'+(l+1)]||assets.m4||assets.m3||assets.m2||assets.m1||null):[assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
 function turn(t){return $('rotateVar').checked?Math.abs(t.q*13+t.r*29+t.q*t.r*7)%6*Math.PI/3:0}
 function collect(obj){
  const meshes=[];if(!obj)return meshes;
@@ -53,26 +56,32 @@ function collect(obj){
   meshes.push({geometry:o.geometry,material:o.material,local:inv.clone().multiply(o.matrixWorld),tri:o.geometry.index?o.geometry.index.count/3:o.geometry.attributes.position.count/3});
  });return meshes;
 }
-function makeSet(lod,kind,obj,proxyGeom,proxyMat){
+function makeSet(lod,kind,obj,proxyGeom,proxyMat,family=null){
  let desc=collect(obj);
  if(!desc.length)desc=[{geometry:proxyGeom,material:proxyMat,local:new THREE.Matrix4(),tri:proxyGeom.index.count/3}];
  return desc.map(p=>{
   const inst=new THREE.InstancedMesh(p.geometry,p.material,tiles.length);
   inst.frustumCulled=false;inst.count=0;inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   stage.add(inst);
-  return {...p,inst,kind,lod};
+  return {...p,inst,kind,lod,family,instanceTiles:[]};
  });
 }
 function rebuild(){
  for(const group of groups){stage.remove(group.inst);group.inst.dispose()}
  groups=[];tiles=visualTiles();
- const referenceTop=activeTop()?assets.m1:assets.t;
- if(referenceTop){const tm=collect(referenceTop).find(m=>m.material?.map);
-  if(tm){soilMaterial=tm.material.clone();soilMaterial.normalMap=null;soilMaterial.roughnessMap=null;soilMaterial.metalnessMap=null;soilMaterial.aoMap=null;soilMaterial.color.set('white');soilMaterial.needsUpdate=true}
+ for(const family of ['wasteland','meadow']){
+  const reference=family==='meadow'?assets.m1:assets.t;
+  if(reference){const textured=collect(reference).find(m=>m.material?.map);
+   if(textured){const old=proxyMaterial[family];const replacement=textured.material.clone();
+    replacement.normalMap=null;replacement.roughnessMap=null;replacement.metalnessMap=null;replacement.aoMap=null;
+    replacement.color.set('white');replacement.needsUpdate=true;
+    proxyMaterial[family]=replacement;if(old!==replacement)old.dispose();
+   }
+  }
  }
  for(let level=0;level<4;level++){
   groups.push(...makeSet(level,'base',level===0?assets.b1:level===1?assets.b2:null,geometry,stoneMaterial));
-  groups.push(...makeSet(level,'top',topForLOD(level),soilGeometry,soilMaterial));
+  for(const family of ['wasteland','meadow'])groups.push(...makeSet(level,'top',topForFamily(family,level),soilGeometry,proxyMaterial[family],family));
  }
  dirty=true;
 }
@@ -98,36 +107,36 @@ function refresh(){
   while(globalBand<4&&height>heights[globalBand]*(1+LOD_HYSTERESIS))globalBand++;
   while(globalBand>0&&height<heights[globalBand-1]*(1-LOD_HYSTERESIS))globalBand--;
  }else globalBand=[0,2,4][requested]??2;
- const mapping=activeTop()?[0,1,1,2,3]:[0,0,1,1,2];
- let uniformLOD=mapping[globalBand];
+ const visibleByFamily=groupTerrainTiles(visible);
+ const bandMap={wasteland:[0,0,1,1,2],meadow:[0,1,1,2,3]};
+ let uniformLOD=Math.max(...Object.entries(visibleByFamily).filter(([,v])=>v.length).map(([family])=>bandMap[family][globalBand]));
+ if(!Number.isFinite(uniformLOD))uniformLOD=0;
  const budget=Number($('triangleBudget')?.value||2000000);
- const levelCost=[0,1,2,3].map(l=>groups.filter(g=>g.lod===l).reduce((sum,g)=>sum+g.tri,0));
- // Downgrade ALL visible tiles together under budget, preventing a quality strip.
- while(uniformLOD<3&&levelCost[uniformLOD]*visible.length>budget)uniformLOD++;
- const desired=visible.map(t=>({...t,lod:uniformLOD}));
- const counts=[0,0,0,0];const baseOnly=$('baseOnly').checked,terrainOnly=$('terrainOnly').checked;
- for(let l=0;l<4;l++){
-  const batch=desired.filter(t=>t.lod===l);counts[l]=batch.length;
-  for(const g of groups.filter(g=>g.lod===l)){
-   g.inst.count=(g.kind==='base'&&terrainOnly)||(g.kind==='top'&&baseOnly)?0:batch.length;
-   if(!g.inst.count)continue;
-   for(let i=0;i<batch.length;i++){
-    const t=batch[i];
-    matrix.makeTranslation(t.x,0,t.z);
-    if(g.kind==='top'){
-     tempMatrix.makeRotationY(turn(t));matrix.multiply(tempMatrix);
-     if(topForLOD(l)){
-      tempMatrix.makeTranslation(0,safeNum('lift'),0);matrix.multiply(tempMatrix);
-      tempMatrix.makeScale(safeNum('scale'),safeNum('scale'),safeNum('scale'));matrix.multiply(tempMatrix);
-     }else{tempMatrix.makeTranslation(0,.12,0);matrix.multiply(tempMatrix)}
-    }
-    matrix.multiply(g.local);
-    g.inst.setMatrixAt(i,matrix);
+ // Per-instance cost includes one common stone base and exactly one terrain family.
+ const budgetCost=l=>groups.filter(g=>g.lod===l).reduce((sum,g)=>sum+g.tri*(g.kind==='base'?visible.length:visibleByFamily[g.family].length),0);
+ while(uniformLOD<3&&budgetCost(uniformLOD)>budget)uniformLOD++;
+ const counts=[0,0,0,0];counts[uniformLOD]=visible.length;
+ const baseOnly=$('baseOnly').checked,terrainOnly=$('terrainOnly').checked;
+ for(const g of groups){
+  const batch=g.lod!==uniformLOD?[]:g.kind==='base'?visible:visibleByFamily[g.family];
+  g.instanceTiles=batch;
+  g.inst.count=(g.kind==='base'&&terrainOnly)||(g.kind==='top'&&baseOnly)?0:batch.length;
+  for(let i=0;i<g.inst.count;i++){
+   const t=batch[i];
+   matrix.makeTranslation(t.x,0,t.z);
+   if(g.kind==='top'){
+    tempMatrix.makeRotationY(turn(t));matrix.multiply(tempMatrix);
+    if(topForFamily(g.family,g.lod)){
+     tempMatrix.makeTranslation(0,terrainLift(g.family),0);matrix.multiply(tempMatrix);
+     const scale=terrainScale(g.family);tempMatrix.makeScale(scale,scale,scale);matrix.multiply(tempMatrix);
+    }else{tempMatrix.makeTranslation(0,.12,0);matrix.multiply(tempMatrix)}
    }
-   g.inst.instanceMatrix.needsUpdate=true;
+   matrix.multiply(g.local);g.inst.setMatrixAt(i,matrix);
   }
+  if(g.inst.count)g.inst.instanceMatrix.needsUpdate=true;
  }
- currentStats='世界修订：'+hexWorld.revision+' / 地表：'+(activeTop()?'草地':'荒地')+'\n地图总格：'+tiles.length+' / 视野内：'+visible.length+
+ const terrainTotals=tileTerrainCounts(tiles);
+ currentStats='世界修订：'+hexWorld.revision+' / 地表：荒地 '+terrainTotals.wasteland+' 草地 '+terrainTotals.meadow+'\n地图总格：'+tiles.length+' / 视野内：'+visible.length+
  '\nLOD 0 / 1 / 2 / 3：'+counts.join(' / ')+
  '\n三角面预算：'+(budget/1000000).toFixed(1)+'M'+
  '\nDraw Calls：'+renderer.info.render.calls+
