@@ -210,7 +210,7 @@ async function autoLoad(){
 
 function updateTerrainStatus(){
  if(activeTop()&&!assets.m1){$('status').textContent='草地 GLB 尚未就绪：请在 models 中放 meadow_lod1.glb～meadow_lod4.glb，或使用上方文件选择导入。当前草地使用中性色代理，不能用于评估草地真实画质。';}
- else $('status').textContent=loadStatus+(activeTop()?'；草地 LOD 已就绪':'；荒地资产已就绪');
+ else $('status').textContent=loadStatus+(activeTop()?(assets.m2?'；草地多级 LOD 已就绪':'；已加载草地单一模型，尚未生成真正 LOD'):'；荒地资产已就绪');
 }
 $('terrainType').addEventListener('change',()=>{const meadow=activeTop();$('scale').value=meadow?'1.00':'1.86';$('lift').value=meadow?'0.20':'0.145';$('scaleV').textContent=$('scale').value;$('liftV').textContent=$('lift').value;updateTerrainStatus();rebuild()});
 for(const b of document.querySelectorAll('[data-radius]'))b.addEventListener('click',()=>{radius=Number(b.dataset.radius);rebuild()});
