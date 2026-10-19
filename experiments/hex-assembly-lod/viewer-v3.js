@@ -3,7 +3,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {fetchTerrainManifest} from '../../src/terrain-assets.js';
 import {createHexWorld,createHexWorldStore} from '../../src/hex-world.js';
-import {hexPosition} from '../../src/hex-space.js';
+import {projectHexTiles} from '../../src/hex-view-projection.js';
 
 const $=id=>document.getElementById(id);
 const scene=new THREE.Scene();scene.background=new THREE.Color('#28323b');
@@ -29,7 +29,7 @@ $('stats').replaceWith(metrics);metrics.id='stats';
 let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh=0,loadStatus='默认占位模型';
 // The viewer consumes the authoritative axial hex-world snapshot.
 let hexWorld=createHexWorldStore(createHexWorld(radius,'wasteland'));
-const visualTiles=()=>hexWorld.snapshot().cells.map(({q,r,terrain})=>({q,r,terrain,...hexPosition(q,r)}));
+const visualTiles=()=>projectHexTiles(hexWorld.snapshot());
 function resizeWorld(nextRadius){radius=nextRadius;hexWorld=createHexWorldStore(createHexWorld(radius,activeTop()?'meadow':'wasteland'));}
 const activeTop=()=> $('terrainType').value==='meadow';
 const topForLOD=l=>activeTop()? (assets['m'+(l+1)]||assets.m4||assets.m3||assets.m2||assets.m1||null) : [assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
