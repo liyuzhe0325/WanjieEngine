@@ -26,7 +26,7 @@ metrics.style.cssText='margin-top:8px;white-space:pre-line;color:#d6b47e;font:13
 $('stats').replaceWith(metrics);metrics.id='stats';
 let radius=2,tiles=[],assets={},groups=[],dirty=true,currentStats='',lastRefresh=0,loadStatus='默认占位模型';
 const activeTop=()=> $('terrainType').value==='meadow';
-const topForLOD=l=>activeTop()? (assets['m'+(l+1)]||null) : [assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
+const topForLOD=l=>activeTop()? (assets['m'+(l+1)]||assets.m4||assets.m3||assets.m2||assets.m1||null) : [assets.t,assets.t1||assets.t,assets.t2,assets.t2][l];
 let globalBand=0;const LOD_HYSTERESIS=0.10;let fpsFrames=0,fpsStart=performance.now(),fpsValue=0;
 const safeNum=id=>Number($(id).value);
 const geometry=new THREE.CylinderGeometry(.94,.94,.21,6,1).rotateY(Math.PI/6);
@@ -150,7 +150,49 @@ async function apply(entries){
  updateTerrainStatus();
  rebuild();
 }
-$('files').onchange=async event=>apply(await Promise.all([...event.target.files].map(async f=>[f.name,await f.arrayBuffer()])));
+$('files').onchange=async event=>{
+ const files=[...event.target.files];if(!files.length)return;
+ const entries=[];const ignored=[];
+ for(const file of files){
+  try{
+   if(!/\.glb$/i.test(file.name)){ignored.push(file.name+'（非 GLB）');continue}
+   const data=await file.arrayBuffer();
+   if(data.byteLength<12||new DataView(data).getUint32(0,true)!==0x46546c67)throw Error('不是有效 GLB 文件头');
+   entries.push([file.name,data]);
+  }catch(e){ignored.push(file.name+'：'+e.message)}
+ }
+ if(!entries.length){$('status').textContent='没有有效 GLB：'+ignored.join('、');return}
+ // Named LODs and existing base/terrain files use their expected slots.
+ const named=entries.filter(([name])=>/^(meadow_lod[1-4]|terrain(?:_lod[12])?|base_lod[12])\.glb$/i.test(name));
+ const unknown=entries.filter(([name])=>!named.some(([n])=>n===name));
+ if(named.length)await apply(named);
+ let accepted=0;
+ for(const [name,data] of unknown){
+  try{
+   const obj=await load(name,data);
+   let triangles=0;obj.traverse(o=>{if(o.isMesh&&o.geometry)triangles+=o.geometry.index?o.geometry.index.count/3:o.geometry.attributes.position.count/3});
+   if(activeTop()){assets.m1=obj;delete assets.m2;delete assets.m3;delete assets.m4}
+   else {assets.t=obj;delete assets.t1;delete assets.t2}
+   accepted++;
+   if(triangles>200000){
+    radius=0;
+    $('mode').value='0';
+    $('status').textContent='已导入 '+name+'，'+Math.round(triangles).toLocaleString()+' 三角面。为了避免高模瞬间铺满棋盘，已自动切换单格模式。';
+   }else $('status').textContent='已导入 '+name+'，'+Math.round(triangles).toLocaleString()+' 三角面。';
+  }catch(e){ignored.push(name+'：'+e.message);console.error(name,e)}
+ }
+ if(accepted){
+  const t=activeTop()?assets.m1:assets.t;
+  t.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(t);const size=box.getSize(new THREE.Vector3());
+  const scale=Math.min(2.5,Math.max(.5,Math.min(1.899/Math.max(.001,size.x),1.656/Math.max(.001,size.z))));
+  $('scale').value=scale.toFixed(2);$('scaleV').textContent=$('scale').value;
+  loadStatus='手动加载 '+accepted+' 个自定义 GLB；已按底盘宽度初步缩放（尚未通过接缝验收）';
+ }
+ rebuild();updateTerrainStatus();
+ if(ignored.length)$('status').textContent+='；未读取：'+ignored.join('、');
+ // A single file picker does not permanently import into the repository.
+ event.target.value='';
+};
 async function autoLoad(){
  const entries=[];
  try {
