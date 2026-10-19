@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {fetchTerrainManifest} from '../../src/terrain-assets.js';
 
 const $=id=>document.getElementById(id);
 const scene=new THREE.Scene();scene.background=new THREE.Color('#28323b');
@@ -152,10 +153,19 @@ async function apply(entries){
 $('files').onchange=async event=>apply(await Promise.all([...event.target.files].map(async f=>[f.name,await f.arrayBuffer()])));
 async function autoLoad(){
  const entries=[];
- for(const f of ['base_lod1.glb','base_lod2.glb','terrain.glb','terrain_lod1.glb','terrain_lod2.glb','meadow_lod1.glb','meadow_lod2.glb','meadow_lod3.glb','meadow_lod4.glb']){
-  try{const r=await fetch('./models/'+f);if(r.ok)entries.push([f,await r.arrayBuffer()])}catch{}
- }if(entries.length)await apply(entries);
+ try {
+  const manifest=await fetchTerrainManifest('./terrain-assets.json');
+  for(const asset of manifest.assets)for(const f of asset.lods) {
+   try {
+    const r=await fetch('./models/'+f);
+    if(r.ok)entries.push([f,await r.arrayBuffer()]);
+   }catch(e){console.warn('Terrain asset unavailable:',f,e)}
+  }
+  if(entries.length)await apply(entries);
+  else {loadStatus='未找到本地模型，使用代理显示';updateTerrainStatus()}
+ }catch(e){console.error('Terrain manifest unavailable:',e);loadStatus='清单加载失败，使用代理显示';updateTerrainStatus()}
 }
+
 function updateTerrainStatus(){
  if(activeTop()&&!assets.m1){$('status').textContent='草地 GLB 尚未就绪：请在 models 中放 meadow_lod1.glb～meadow_lod4.glb，或使用上方文件选择导入。当前草地使用中性色代理，不能用于评估草地真实画质。';}
  else $('status').textContent=loadStatus+(activeTop()?'；草地 LOD 已就绪':'；荒地资产已就绪');
