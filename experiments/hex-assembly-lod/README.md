@@ -122,3 +122,15 @@ git push origin main
 脚本默认查找 `%USERPROFILE%\Downloads\Wanjie_Meadow_Viewer*.zip`。如果压缩包位于其他路径，调用时添加 `-Archive "完整路径"`。脚本会校验 glTF 标识、四个 GLB 的文件大小、现有追踪文件无修改、目标不存在，**不会**覆盖原有五个底盘/荒地 GLB。脚本本身不执行 commit/push，以便用户检查 staged 文件后再确认；需要本机 Git 提交者身份和 GitHub 推送权限。草地四档共约 21 MB，直接使用普通 Git；如要扩大美术资源库，需设计 Git LFS / 版本化资产下载机制。
 
 **当前远程仓库尚未包含这四个二进制文件**，原因是会话 GitHub 文件接口不能从本地容器读取并发送该大小的二进制资源。本方案是可核验的一次性过渡，不是已经完成纯 git pull 的资产交付。草地 LOD 的外观和模型底盘匹配仍未实机验收。草地默认缩放 1.00、高度 0.20（仅供试装），旧荒地仍为 1.86 / 0.145。
+
+## v3.5：仓库内资产清单（无需 Python 工具）
+
+本次已经提交：
+- `src/terrain-assets.js`：零依赖的地形资源清单校验及查询模块。
+- `experiments/hex-assembly-lod/terrain-assets.json`：石底盘、荒地、草地的 LOD 文件列表与装配元数据。
+- `viewer-v3.js`：不再维护手写的自动加载文件清单；统一读取上面的 JSON，在 `models/` 下尝试加载已存在的 GLB。
+- `tests/terrain-assets.test.js`：检查格式、路径穿越、重复文件名和不合法变换。
+
+在仓库根目录执行 `npm test` 或 `node --test tests/terrain-assets.test.js` 验证清单逻辑；浏览器依然按上方 URL 启动。
+
+**明确边界：** 这实现的是运行时资源清单与加载入口的第一步，不是 Godot 等级的编辑器导入器。它尚未自动生成 LOD、烘焙纹理、标准化几何或同步远程二进制文件；草地 GLB 尚未进入 GitHub，用户电脑上的旧 `models/` 文件仍然保留。项目源代码可直接 `git pull` 获取，无须下载或解压 Python 工具。
