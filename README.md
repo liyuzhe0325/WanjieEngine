@@ -5,9 +5,15 @@
 ## 新人第一天做什么
 
 1. 运行 `npm test`，保留结果；失败时先定位，不直接加内容。
-2. 运行 `python -m http.server 8000`；访问 `/` 是**旧方格地图编辑器**，访问 `/experiments/hex-assembly-lod/` 才是**六角微雕实验**；**正式文明游戏入口仍未建成**。
+2. 运行 `python -m http.server 8000`；访问 `/` 是**旧方格地图编辑器**，访问 `/experiments/hex-assembly-lod/` 才是**六角微雕实验**；**`game.html` 是新的六角游戏开发入口（只具备卡牌动作基本闭环，尚非完整文明游戏）**。
 3. 阅读 [设计宪章](docs/GAME_DESIGN_CANON.md)、[统一主线整合台账](docs/ENGINE_MAIN_CONSOLIDATION_2026-10-19.md)、[质量台账](docs/QUALITY_LOG.md)。
 4. 当前先复验地貌存档 WQ-001、GLB 提示 WQ-002 和真实场景 WQ-004，再推进六角正式游戏入口、选择/行动/反馈闭环。不要擅自回到美术接入或创建新长期分支。
+
+## 正式游戏开发入口（2026-10-20）
+
+打开 **http://localhost:8000/game.html**，进入六角数据驱动的最小交互游戏入口。可点击格子、选择演示卡、预览、确认、观察地貌变化或挂靠关系与事件日志。对应 `src/hex-game.js`（权威六角世界与卡牌事务）和 `src/game-main.js`（轻量棋盘 UI），测试在 `tests/hex-game.test.js`。**这些仍是工程演示卡，不是正式内容或完整文明游戏。**
+
+旧 `src/game.js` 仍依赖方格 `world.js`，本轮未迁移、也未让其同时成为权威游戏状态。后续必须审查/迁移旧实验而不是直接共用两套状态。
 
 ## 历史编辑器说明
 
