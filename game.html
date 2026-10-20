@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>万界文明 · 游戏开发入口</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#e9e4d7;background:#161c22}
+*{box-sizing:border-box}body{margin:0}header{padding:14px 22px;border-bottom:1px solid #394349;display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-size:20px;margin:0}small,.muted{color:#abb2af}main{display:grid;grid-template-columns:minmax(340px,1fr) 330px;min-height:calc(100vh - 62px)}
+#boardWrap{overflow:auto;display:grid;place-items:center;padding:30px;background:radial-gradient(#35434a,#1c252b 70%)}
+#board{position:relative;width:720px;height:600px;flex-shrink:0}
+.hex{position:absolute;width:76px;height:68px;transform:translate(-50%,-50%);border:0;cursor:pointer;clip-path:polygon(25% 2%,75% 2%,100% 50%,75% 98%,25% 98%,0 50%);color:#fff;font-weight:600;text-shadow:0 1px 3px #141414;background:#776950;box-shadow:none}
+.hex.meadow{background:#64865b}.hex:hover{filter:brightness(1.2)}.hex.selected{outline:none;filter:brightness(1.32);background:#b39860}.hex[data-ward="true"]::after{content:"◈";display:block;color:#cde4f1;font-size:24px}
+aside{background:#222a31;border-left:1px solid #394349;padding:18px;display:flex;flex-direction:column;gap:18px}h2{font-size:15px;margin:0 0 10px}
+button.card{display:block;width:100%;margin:7px 0;padding:11px;text-align:left;border:1px solid #67727a;background:#313d45;color:#fff;border-radius:7px;cursor:pointer}
+button.card.active{border-color:#e2c37c;background:#4b4b40}button:disabled{opacity:.45;cursor:not-allowed}
+#confirm{padding:11px;border-radius:7px;border:1px solid #ab925b;color:#f4e6bb;background:#524937;cursor:pointer;width:100%}
+#confirm:disabled{opacity:.4}#info,#message,#events{white-space:pre-wrap;line-height:1.55;color:#d7d9d5}#events{font-size:13px;max-height:180px;overflow:auto}
+@media(max-width:900px){main{display:block}aside{border-left:0;border-top:1px solid #394349}#boardWrap{max-height:66vh}#board{transform:scale(.75);transform-origin:center}}
+</style></head><body>
+<header><h1>万界文明 <small>· 正式游戏开发入口（占位棋盘）</small></h1><small>六角世界 / 卡牌预览 / 提交 / 世界反馈</small></header>
+<main><section id="boardWrap" aria-label="六角世界棋盘"><div id="board"></div></section>
+<aside><section><h2>当前地块</h2><div id="info">点击六角地块查看</div></section>
+<section><h2>持有卡牌</h2><div id="cards"></div></section>
+<section><h2>操作预览</h2><div id="message">先选一张牌，再选目标地块。</div><button id="confirm" disabled>确认执行</button></section>
+<section><h2>世界事件</h2><div id="events">尚无事件</div></section>
+<small>这是玩法工程入口，不是已完成游戏；仅提供两张培育牌和一张关系挂靠演示牌。没有经济、抽卡与完整文明循环。旧地图编辑器和 GLB 微雕实验仍保留各自入口。</small>
+</aside></main><script type="module" src="./src/game-main.js"></script></body></html>
