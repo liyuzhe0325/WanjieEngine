@@ -11,7 +11,7 @@
 
 ## 正式游戏开发入口（2026-10-20）
 
-打开 **http://localhost:8000/game.html**，进入六角数据驱动的最小交互游戏入口。可点击格子、选择演示卡、预览、确认、观察地貌变化或挂靠关系与事件日志。对应 `src/hex-game.js`（权威六角世界与卡牌事务）和 `src/game-main.js`（轻量棋盘 UI），测试在 `tests/hex-game.test.js`。**这些仍是工程演示卡，不是正式内容或完整文明游戏。**
+打开 **http://localhost:8000/game.html**，进入六角数据驱动的 Three.js 3D 最小交互入口。可点击格子、选择演示卡、预览、确认、观察地貌变化或挂靠关系与事件日志。对应 `src/hex-game.js`（权威六角世界与卡牌事务）和 `src/game-main.js`（卡牌操作 UI、Three.js 占位渲染与实例拾取），3D 视图为 `src/hex-game-view.js`，复用 `src/hex-view-projection.js` 的六角坐标投影；测试在 `tests/hex-game.test.js`。模型是清楚标识的程序代理几何，未合入独立实验的 GLB / LOD 资产加载与优化。**这些仍是工程演示卡，不是正式内容或完整文明游戏。**
 
 旧 `src/game.js` 仍依赖方格 `world.js`，本轮未迁移、也未让其同时成为权威游戏状态。后续必须审查/迁移旧实验而不是直接共用两套状态。
 
