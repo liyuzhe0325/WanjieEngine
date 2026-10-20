@@ -11,7 +11,7 @@ function render(){
  for(const tile of snapshot.cells){
   const p=pos.get(tile.q+','+tile.r),b=document.createElement('button');
   b.type='button';b.className='hex '+tile.terrain+(selected?.q===tile.q&&selected?.r===tile.r?' selected':'');
-  b.style.left=(360+p.x*69)+'px';b.style.top=(300+p.z*41.8)+'px';
+  b.style.left=(360+p.x*40)+'px';b.style.top=(300+p.z*41)+'px';
   b.textContent=tile.terrain==='meadow'?'草':'荒';
   b.title='('+tile.q+','+tile.r+') '+(tile.terrain==='meadow'?'草地':'荒地');
   b.dataset.ward=String(game.attachmentsAt(tile.q,tile.r).length>0);
