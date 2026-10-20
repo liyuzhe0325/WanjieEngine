@@ -1,23 +1,13 @@
 import {createHexGame} from './hex-game.js';
-import {hexPosition} from './hex-space.js';
+import {createHexGameView} from './hex-game-view.js';
 const game=createHexGame();
 let selected=null,selectedCard=null;
 const $=id=>document.getElementById(id);
-const coords=game.world.snapshot().cells.map(c=>({...c,...hexPosition(c.q,c.r)}));
-const pos=new Map(coords.map(c=>[c.q+','+c.r,c]));
+const view=createHexGameView($('board'),{onPick(q,r){selected={q,r};render();}});
 function render(){
  const snapshot=game.world.snapshot();
- $('board').replaceChildren();
- for(const tile of snapshot.cells){
-  const p=pos.get(tile.q+','+tile.r),b=document.createElement('button');
-  b.type='button';b.className='hex '+tile.terrain+(selected?.q===tile.q&&selected?.r===tile.r?' selected':'');
-  b.style.left=(360+p.x*40)+'px';b.style.top=(300+p.z*41)+'px';
-  b.textContent=tile.terrain==='meadow'?'草':'荒';
-  b.title='('+tile.q+','+tile.r+') '+(tile.terrain==='meadow'?'草地':'荒地');
-  b.dataset.ward=String(game.attachmentsAt(tile.q,tile.r).length>0);
-  b.addEventListener('click',()=>{selected={q:tile.q,r:tile.r};render()});
-  $('board').append(b);
- }
+ const attachments=game.cards().filter(c=>c.target).map(c=>c.target);
+ view.draw(snapshot,{selection:selected,attachments});
  const tile=selected&&game.world.readCell(selected.q,selected.r);
  $('info').textContent=tile?'坐标：'+tile.q+', '+tile.r+'\n地貌：'+(tile.terrain==='meadow'?'草地':'荒地')+'\n挂靠卡牌：'+game.attachmentsAt(tile.q,tile.r).map(c=>c.name).join('、'):'尚未选择地块';
  $('cards').replaceChildren();
