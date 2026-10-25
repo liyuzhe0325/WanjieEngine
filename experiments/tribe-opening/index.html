@@ -29,7 +29,7 @@ function getById(id){return world.units.find(u=>u.id===id&&u.hp>0)}
 function walkable(q,r){let c=cell(q,r);return !!c&&c.t!=="water"&&!world.units.some(u=>u.hp>0&&u.q===q&&u.r===r)}
 function stepToward(u,p){let choices=dirs.map(d=>({q:u.q+d[0],r:u.r+d[1]})).filter(p=>walkable(p.q,p.r));choices.sort((a,b)=>distance(a,p)-distance(b,p)||distance(a,{q:0,r:0})-distance(b,{q:0,r:0}));if(choices.length&&distance(choices[0],p)<distance(u,p)){u.q=choices[0].q;u.r=choices[0].r;return true}return false}
 function closest(u,filter){return world.units.filter(x=>x.hp>0&&x.id!==u.id&&filter(x)).sort((a,b)=>distance(u,a)-distance(u,b)||a.id-b.id)[0]}
-function hit(a,b){if(a.cool>0||distance(a,b)>a.range)return false;let dmg=a.atk;if(a.kind==="hunter"&&world.rule==="pack"&&world.units.some(x=>x!==a&&x.kind==="hunter"&&distance(x,a)<=2))dmg+=2;b.hp-=dmg;a.cool=2;log((a.kind==="wolf"?"狼":a.kind==="deer"?"鹿":a.kind==="hunter"?"猎团":"守卫")+"攻击 "+(b.team==="human"?"我方战团":b.kind==="wolf"?"狼":"猎物")+"，造成 "+dmg+" 点伤害");if(b.hp<=0){if(b.kind==="deer"){world.food+=8;log("猎获食物 +8")}if(b.kind==="wolf"){world.food+=3;log("击退捕食者，食物 +3")}if(b.team==="human"){world.pop=Math.max(0,world.pop-(b.kind==="hunter"?4:5));log("战团溃散，人口受损")}world.kills++;}return true}
+function hit(a,b){if(a.cool>0||distance(a,b)>a.range)return false;let dmg=a.atk;if(a.kind==="hunter"&&world.rule==="pack"&&world.units.some(x=>x!==a&&x.team==="human"&&distance(x,a)<=2))dmg+=2;b.hp-=dmg;a.cool=2;log((a.kind==="wolf"?"狼":a.kind==="deer"?"鹿":a.kind==="hunter"?"猎团":"守卫")+"攻击 "+(b.team==="human"?"我方战团":b.kind==="wolf"?"狼":"猎物")+"，造成 "+dmg+" 点伤害");if(b.hp<=0){if(b.kind==="deer"){world.food+=8;log("猎获食物 +8")}if(b.kind==="wolf"){world.food+=3;log("击退捕食者，食物 +3")}if(b.team==="human"){world.pop=Math.max(0,world.pop-(b.kind==="hunter"?4:5));log("战团溃散，人口受损")}world.kills++;}return true}
 function behave(u){
  if(u.hp<=0)return;
  u.cool=Math.max(0,u.cool-1);
@@ -66,7 +66,7 @@ function refresh(){
  $("orderHint").textContent=world.mode==="select"?"点击棋子选择；指令无需消耗卡牌。":"当前指令："+({move:"移动到指定格子",attack:"攻击选中的敌方目标",hold:"到指定格子坚守"}[world.mode]||world.mode);
  $("cardPrompt").textContent=world.offer&&!world.rule?"首次遭遇危险！选择一张长期机制牌，永久改变猎团行为。":world.rule?"已安装文明行为规则；这是早期构筑实验。":"首次遭遇捕食者后开放两种行为构筑。";
  $("cards").innerHTML="";
- if(world.offer&&!world.rule){for(const [k,title,desc] of [["caution","警戒本能","猎团发现近距离捕食者时主动撤向营地"],["pack","集群狩猎","两支猎团协同时攻击更强（未来可扩编）"]]){let b=document.createElement("button");b.innerHTML=title+"<small>"+desc+"</small>";b.addEventListener("click",()=>{world.rule=k;log("安装文明机制："+title);refresh()});$("cards").appendChild(b)}}
+ if(world.offer&&!world.rule){for(const [k,title,desc] of [["caution","警戒本能","猎团发现近距离捕食者时主动撤向营地"],["pack","集群狩猎","猎团与友方战团相邻协同时额外造成 2 点伤害"]]){let b=document.createElement("button");b.innerHTML=title+"<small>"+desc+"</small>";b.addEventListener("click",()=>{world.rule=k;log("安装文明机制："+title);refresh()});$("cards").appendChild(b)}}
  $("installed").textContent=world.rule?("已安装："+(world.rule==="caution"?"警戒本能":"集群狩猎")):"可在危机发生后构筑";
  document.querySelectorAll("[data-order]").forEach(b=>b.classList.toggle("active",b.dataset.order===world.mode));
  draw()
