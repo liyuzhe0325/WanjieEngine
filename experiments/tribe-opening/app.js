@@ -15,6 +15,11 @@ let speed = 1;
 let last = 0;
 let acc = 0;
 
+// 节奏：一步（一个 tick）的基础时长。0.5× 时约 1.6 秒一步，足够看清一次交换。
+const TICK_SECONDS = 0.8;
+const SPEEDS = [0.5, 1, 2, 4];
+const speedLabel = (s) => (s === 0.5 ? "0.5× 慢速" : s + "× 速度");
+
 function refresh() {
   $("pop").textContent = world.pop;
   $("food").textContent = world.food;
@@ -283,15 +288,15 @@ $("pause").addEventListener("click", () => {
   $("pause").textContent = paused ? "继续" : "暂停";
 });
 $("speed").addEventListener("click", () => {
-  speed = speed === 1 ? 2 : speed === 2 ? 4 : 1;
-  $("speed").textContent = speed + "× 速度";
+  speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+  $("speed").textContent = speedLabel(speed);
 });
 $("reset").addEventListener("click", () => {
   world = createWorld();
   paused = false;
   speed = 1;
   acc = 0;
-  $("speed").textContent = "1× 速度";
+  $("speed").textContent = speedLabel(speed);
   $("pause").textContent = "暂停";
   log(world, "流民扎营。猎团自主狩猎，守卫驻守营地。");
   renderLog();
@@ -325,9 +330,9 @@ function frame(now) {
   last = now;
   if (!paused) {
     acc += dt * speed;
-    while (acc >= 0.65) {
+    while (acc >= TICK_SECONDS) {
       tickOnce();
-      acc -= 0.65;
+      acc -= TICK_SECONDS;
     }
     refresh();
   }
