@@ -1,5 +1,11 @@
 // 《万界文明》河谷流民 · 自主战棋开局实验 —— 纯规则内核（无 DOM、可被 node --test 直接测试）
 // 与正式 game.html / 六角世界权威状态无关。这里的数值是实验常量，不是定稿平衡。
+//
+// 行为约定（本轮新增，供验收）：
+//   1. 每支棋子的自主行为 = 一张**有序规则表**，自上而下取第一条命中的规则；命中结果写入 u.action。
+//   2. 玩家指令（move / attack / hold）永远优先于所有自主规则。
+//   3. 规则表对外导出（HUNTER_RULES / GUARD_RULES / WOLF_RULES / DEER_RULES），可被测试逐条断言。
+//   4. 不做战术寻优、不做多步推演：每条规则只看「距离」与「当前状态」两类事实。
 
 export const SQRT3 = Math.sqrt(3);
 export const R = 29;
@@ -10,9 +16,30 @@ export const DAY_TICKS = 18;
 export const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 export const STATS = { hunter: [6, 2, 2], guard: [10, 3, 1], deer: [3, 0, 2], wolf: [7, 2, 2] };
 export const NAMES = { hunter: "猎团", guard: "守卫", deer: "鹿", wolf: "狼" };
+
+// 部署：只在营地附近、可通行、无占用；用食物结算，不改基础数值。
+export const DEPLOY = { radius: 2, cost: { hunter: 10, guard: 12 } };
+
 export const RULES = {
-  caution: { key: "caution", title: "警戒本能", desc: "猎团发现附近捕食者时主动撤离，并在安全后恢复自主" },
-  pack: { key: "pack", title: "集群狩猎", desc: "猎团与友方战团保持在 2 格内协同，额外造成 2 点伤害" }
+  caution: { key: "caution", title: "警戒本能", desc: "猎团发现 3 格内捕食者时撤离，威胁离开后恢复自主" },
+  pack: { key: "pack", title: "集群狩猎", desc: "猎团与友方保持在 2 格内协同，额外造成 2 点伤害" }
+};
+
+// 行为规则的对外标签（UI 反馈与日志共用）
+export const BEHAVIOR_LABELS = {
+  "order.move": "执行移动指令",
+  "order.attack": "执行攻击指令",
+  "order.hold": "驻守指定位置",
+  "rule.caution.flee": "警戒本能：撤离捕食者",
+  "survive.disengage": "避强：脱离战斗",
+  "rule.pack.cohesion": "集群狩猎：向友方合流",
+  "hunt.prey": "自主狩猎",
+  "post.return": "返回驻守点",
+  "defend.engage": "防守接敌",
+  "raid.chase": "追击",
+  "raid.approach": "逼近营地",
+  "flee.human": "逃离猎人",
+  idle: "待命"
 };
 
 export const hexKey = (q, r) => q + "," + r;
@@ -49,11 +76,7 @@ export function passable(world, q, r, selfId) {
   return !unitAt(world, q, r, selfId);
 }
 
-/**
- * 六角网格 BFS 寻路（修复原实现的贪心一步走：贪心无法绕开水面与其他单位，
- * 一旦第一个更近的邻格不可通行就永久停在原地）。
- * 返回从 start 的下一步起、直到 goal 的格序列；不可达返回 null。
- */
+/** 六角网格 BFS 寻路。返回从 start 的下一步起、直到 goal 的格序列；不可达返回 null。 */
 export function findPath(world, start, goal, { selfId = null, maxNodes = 400 } = {}) {
   if (!cell(world, goal.q, goal.r)) return null;
   if (distance(start, goal) === 0) return [];
@@ -107,7 +130,6 @@ function advanceAlongPath(world, unit, goal) {
     unit.r = path[0].r;
     return distance(unit, goal) === 0 ? "arrived" : "moved";
   }
-  // 目标格被占用（例如营地里有守卫）：走到邻格即算「已抵达附近」，不让单位永久空转
   const adjacent = nearestReachableAdjacent(world, unit, goal, unit.id);
   if (adjacent) {
     if (distance(unit, goal) === 1) return "adjacent";
@@ -163,7 +185,7 @@ export function packBonus(world, unit) {
   return world.rule === "pack" && unit.kind === "hunter" && allyWithin(world, unit, 2) ? 2 : 0;
 }
 
-export function spawn(world, team, kind, q, r) {
+export function spawn(world, team, kind, q, r, post) {
   const s = STATS[kind];
   const unit = {
     id: world.nextId++,
@@ -179,10 +201,50 @@ export function spawn(world, team, kind, q, r) {
     order: "auto",
     target: null,
     cool: 0,
-    stall: 0
+    stall: 0,
+    // 驻守点：部署机制的核心。玩家部署在哪，这支棋子就以哪里为「家」。
+    post: post ? { q: post.q, r: post.r } : team === "human" ? { q: CAMP.q, r: CAMP.r } : null,
+    action: "idle",
+    cohesion: false,
+    deployed: !!post
   };
   world.units.push(unit);
   return unit;
+}
+
+// —— 部署机制 ——
+export function deployZone(world) {
+  const out = [];
+  for (let q = -DEPLOY.radius; q <= DEPLOY.radius; q++) {
+    for (let r = -DEPLOY.radius; r <= DEPLOY.radius; r++) {
+      const c = cell(world, q, r);
+      if (c && c.t !== "water" && distance(c, CAMP) <= DEPLOY.radius) out.push({ q, r });
+    }
+  }
+  return out;
+}
+
+/** 部署合法性：范围、地形、占用、食物。返回 {ok, reason}，不改状态。 */
+export function deployStatus(world, kind, q, r) {
+  if (!STATS[kind] || kind === "deer" || kind === "wolf") return { ok: false, reason: "不可部署该兵种" };
+  const c = cell(world, q, r);
+  if (!c) return { ok: false, reason: "地块不存在" };
+  if (distance(c, CAMP) > DEPLOY.radius) return { ok: false, reason: "超出部署半径（营地 " + DEPLOY.radius + " 格内）" };
+  if (c.t === "water") return { ok: false, reason: "水面不可部署" };
+  if (unitAt(world, q, r)) return { ok: false, reason: "该格已被占用" };
+  const cost = DEPLOY.cost[kind];
+  if (world.food < cost) return { ok: false, reason: "食物不足（需要 " + cost + "）" };
+  return { ok: true, reason: "可部署，消耗食物 " + cost };
+}
+
+export function deploy(world, kind, q, r) {
+  const status = deployStatus(world, kind, q, r);
+  if (!status.ok) return status;
+  world.food -= DEPLOY.cost[kind];
+  const u = spawn(world, "human", kind, q, r, { q, r });
+  world.deploys = (world.deploys || 0) + 1;
+  log(world, "部署" + NAMES[kind] + "至 " + q + "," + r + "（消耗食物 " + DEPLOY.cost[kind] + "）");
+  return { ok: true, reason: status.reason, unit: u };
 }
 
 export function createWorld(seed = 1117) {
@@ -202,6 +264,7 @@ export function createWorld(seed = 1117) {
     encounter: false,
     logs: [],
     kills: 0,
+    deploys: 0,
     events: []
   };
   for (let q = -5; q <= 5; q++) {
@@ -302,20 +365,21 @@ export function hit(world, attacker, defender) {
   return true;
 }
 
-/** 只在明显打不过（自己快死、狼还很硬）时脱离，避免猎团自杀式扑狼把构筑实验变成「猎团必死」。 */
+/** 只在明显打不过（自己快死、狼还很硬）时脱离。基础数值不改，只改「什么时候不接战」。 */
 function shouldDisengage(world, u, wolf) {
   const dmg = u.atk + packBonus(world, u);
   return u.hp <= wolf.atk * 2 && wolf.hp > dmg;
 }
 
-/** 撤离：在 2 步可达范围内选「离威胁最远、其次离营地最近」的落脚点。 */
+/** 撤离：在 2 步可达范围内选「离威胁最远、其次离驻守点最近」的落脚点。 */
 function flee(world, u, threat, reason) {
   const options = reachableWithin(world, u, 2, u.id);
   if (!options.length) return false;
+  const anchor = u.post || CAMP;
   options.sort(
     (a, b) =>
       distance(b, threat) - distance(a, threat) ||
-      distance(a, CAMP) - distance(b, CAMP) ||
+      distance(a, anchor) - distance(b, anchor) ||
       a.q - b.q ||
       a.r - b.r
   );
@@ -332,73 +396,181 @@ function flee(world, u, threat, reason) {
   return true;
 }
 
-function hunterAuto(world, u) {
+// ————————————————————————————————————————————————
+// 自主行为：有序规则表。自上而下取第一条 when 成立的规则，由 act 执行。
+// 规则只看距离与当前状态，不做多步推演、不做目标打分。
+// ————————————————————————————————————————————————
+
+function hunterCtx(world, u) {
   const wolf = closest(world, u, (x) => x.kind === "wolf");
-  const wd = wolf ? distance(u, wolf) : Infinity;
+  const ally = closest(world, u, (x) => x.team === "human");
+  const prey = closest(
+    world,
+    u,
+    (x) => x.kind === "deer" || (x.kind === "wolf" && distance(u, x) <= 2)
+  );
+  return { wolf, ally, prey, wd: wolf ? distance(u, wolf) : Infinity };
+}
 
-  // 警戒本能：附近有捕食者就撤离；不再「逃到营地后原地不动」
-  if (world.rule === "caution" && wolf && wd <= 3) {
-    if (flee(world, u, wolf, "警戒本能")) return;
-  }
-  // 生存判断：血少且狼还很硬时脱离战斗（原版没有这条，猎团几乎必死，构筑因此永远无从生效）
-  if (wolf && wd <= 2 && shouldDisengage(world, u, wolf)) {
-    if (world.rule !== "caution" && flee(world, u, wolf, "避开强敌")) return;
-  }
-  if (!wolf || wd > 3) u.retreat = null;
+export const HUNTER_RULES = [
+  {
+    id: "rule.caution.flee",
+    when: (w, u, c) => w.rule === "caution" && !!c.wolf && c.wd <= 3,
+    act: (w, u, c) => {
+      flee(w, u, c.wolf, "警戒本能");
+    }
+  },
+  {
+    id: "survive.disengage",
+    when: (w, u, c) => !!c.wolf && c.wd <= 2 && shouldDisengage(w, u, c.wolf),
+    act: (w, u, c) => {
+      flee(w, u, c.wolf, "避强");
+    }
+  },
+  {
+    // 滞回锁存：>4 格时开始归队，≤2 格结束。避免「追猎物 / 回队」每步来回切换导致原地抖动。
+    id: "rule.pack.cohesion",
+    when: (w, u, c) => w.rule === "pack" && !!c.ally && (u.cohesion || distance(u, c.ally) > 4),
+    act: (w, u, c) => {
+      u.cohesion = true;
+      if (distance(u, c.ally) <= 2) {
+        u.cohesion = false;
+        return;
+      }
+      stepToward(w, u, c.ally);
+    }
+  },
+  {
+    id: "hunt.prey",
+    when: (w, u, c) => !!c.prey,
+    act: (w, u, c) => {
+      if (!hit(w, u, c.prey)) stepToward(w, u, c.prey);
+    }
+  },
+  {
+    id: "post.return",
+    when: (w, u) => distance(u, u.post || CAMP) > 1,
+    act: (w, u) => {
+      stepToward(w, u, u.post || CAMP);
+    }
+  },
+  { id: "idle", when: () => true, act: () => {} }
+];
 
-  // 集群狩猎：先与最近友方合流（保持 2 格内），再一起下手
-  if (world.rule === "pack") {
-    const ally = closest(world, u, (x) => x.team === "human");
-    if (ally && distance(u, ally) > 2) {
-      if (stepToward(world, u, ally)) return;
+function guardCtx(world, u) {
+  const wolf = closest(world, u, (x) => x.team === "wild" && x.kind === "wolf");
+  const anchor = u.post || CAMP;
+  return { wolf, anchor, wolfToPost: wolf ? distance(wolf, anchor) : Infinity };
+}
+
+export const GUARD_RULES = [
+  {
+    id: "defend.engage",
+    when: (w, u, c) => !!c.wolf && c.wolfToPost <= 3,
+    act: (w, u, c) => {
+      if (!hit(w, u, c.wolf)) stepToward(w, u, c.wolf);
+    }
+  },
+  {
+    id: "post.return",
+    when: (w, u, c) => distance(u, c.anchor) > 0,
+    act: (w, u, c) => {
+      stepToward(w, u, c.anchor);
+    }
+  },
+  { id: "idle", when: () => true, act: () => {} }
+];
+
+function wolfCtx(world, u) {
+  const enemy = closest(world, u, (x) => x.team === "human");
+  return { enemy };
+}
+
+export const WOLF_RULES = [
+  {
+    id: "raid.chase",
+    when: (w, u, c) => !!c.enemy && distance(u, c.enemy) <= 3,
+    act: (w, u, c) => {
+      if (!hit(w, u, c.enemy)) stepToward(w, u, c.enemy);
+    }
+  },
+  {
+    id: "raid.approach",
+    when: (w, u) => distance(u, CAMP) > 1,
+    act: (w, u) => {
+      stepToward(w, u, CAMP);
+    }
+  },
+  { id: "idle", when: () => true, act: () => {} }
+];
+
+function deerCtx(world, u) {
+  const hunter = closest(world, u, (x) => x.team === "human");
+  return { hunter, hd: hunter ? distance(u, hunter) : Infinity };
+}
+
+export const DEER_RULES = [
+  {
+    id: "flee.human",
+    when: (w, u, c) => c.hd <= 1,
+    act: (w, u, c) => {
+      const dests = neighbors(u.q, u.r)
+        .filter((p) => passable(w, p.q, p.r, u.id))
+        .sort(
+          (a, b) => distance(b, c.hunter) - distance(a, c.hunter) || distance(a, CAMP) - distance(b, CAMP)
+        );
+      if (dests[0] && distance(dests[0], c.hunter) > distance(u, c.hunter)) {
+        u.q = dests[0].q;
+        u.r = dests[0].r;
+      }
+    }
+  },
+  { id: "idle", when: () => true, act: () => {} }
+];
+
+const RULE_TABLES = { hunter: HUNTER_RULES, guard: GUARD_RULES, wolf: WOLF_RULES, deer: DEER_RULES };
+const CTX_BUILDERS = { hunter: hunterCtx, guard: guardCtx, wolf: wolfCtx, deer: deerCtx };
+
+/** 只读：返回当前会命中的规则 id（测试与 UI 反馈用，不产生副作用）。 */
+export function selectRule(world, u) {
+  const table = RULE_TABLES[u.kind];
+  if (!table) return "idle";
+  const ctx = CTX_BUILDERS[u.kind](world, u);
+  for (const rule of table) {
+    if (rule.when(world, u, ctx)) return rule.id;
+  }
+  return "idle";
+}
+
+function runBehaviorTable(world, u) {
+  const table = RULE_TABLES[u.kind];
+  if (!table) {
+    u.action = "idle";
+    return;
+  }
+  const ctx = CTX_BUILDERS[u.kind](world, u);
+  // 锁存状态同步：离开集群狩猎规则，或已经贴到友方 2 格内，就结束归队
+  if (u.kind === "hunter") {
+    if (world.rule !== "pack") u.cohesion = false;
+    else if (u.cohesion && (!ctx.ally || distance(u, ctx.ally) <= 2)) u.cohesion = false;
+  }
+  for (const rule of table) {
+    if (rule.when(world, u, ctx)) {
+      rule.act(world, u, ctx);
+      u.action = rule.id;
+      return;
     }
   }
-
-  const prey = closest(world, u, (x) => x.kind === "deer" || (x.kind === "wolf" && distance(u, x) <= 2));
-  if (prey) {
-    if (!hit(world, u, prey)) stepToward(world, u, prey);
-  } else if (distance(u, CAMP) > 1) {
-    stepToward(world, u, CAMP);
-  }
-}
-
-function guardAuto(world, u) {
-  const enemy = closest(world, u, (x) => x.team === "wild" && x.kind === "wolf");
-  if (enemy && distance(enemy, CAMP) <= 3) {
-    if (!hit(world, u, enemy)) stepToward(world, u, enemy);
-  } else if (distance(u, CAMP) > 1) {
-    stepToward(world, u, CAMP);
-  }
-}
-
-function wolfAuto(world, u) {
-  const enemy = closest(world, u, (x) => x.team === "human");
-  if (enemy && distance(u, enemy) <= 3) {
-    if (!hit(world, u, enemy)) stepToward(world, u, enemy);
-  } else if (distance(u, CAMP) > 1) {
-    stepToward(world, u, CAMP);
-  }
-}
-
-function deerAuto(world, u) {
-  const hunter = closest(world, u, (x) => x.team === "human");
-  if (!hunter || distance(u, hunter) > 1) return;
-  const dests = neighbors(u.q, u.r)
-    .filter((p) => passable(world, p.q, p.r, u.id))
-    .sort(
-      (a, b) => distance(b, hunter) - distance(a, hunter) || distance(a, CAMP) - distance(b, CAMP)
-    );
-  if (dests[0] && distance(dests[0], hunter) > distance(u, hunter)) {
-    u.q = dests[0].q;
-    u.r = dests[0].r;
-  }
+  u.action = "idle";
 }
 
 function behave(world, u) {
   if (u.hp <= 0) return;
   u.cool = Math.max(0, u.cool - 1);
 
+  // 玩家指令优先于一切自主规则
   if (u.order === "move" || u.order === "hold") {
+    u.action = u.order === "move" ? "order.move" : "order.hold";
     if (!u.target) {
       u.order = "auto";
       return;
@@ -410,7 +582,6 @@ function behave(world, u) {
         u.order = "auto";
         u.target = null;
       }
-      // hold：抵达后驻守
     } else if (status === "blocked") {
       u.stall++;
       if (u.stall >= 4) {
@@ -430,6 +601,7 @@ function behave(world, u) {
   }
 
   if (u.order === "attack") {
+    u.action = "order.attack";
     const target = u.target && unitById(world, u.target.id);
     if (!target) {
       log(world, "目标已消失，恢复自主");
@@ -452,10 +624,7 @@ function behave(world, u) {
     return;
   }
 
-  if (u.kind === "hunter") hunterAuto(world, u);
-  else if (u.kind === "guard") guardAuto(world, u);
-  else if (u.kind === "wolf") wolfAuto(world, u);
-  else if (u.kind === "deer") deerAuto(world, u);
+  runBehaviorTable(world, u);
 }
 
 export function stepWorld(world) {
@@ -502,9 +671,13 @@ export function snapshot(world) {
     encounter: world.encounter,
     offer: world.offer,
     kills: world.kills,
+    deploys: world.deploys || 0,
     seed: world.seed,
     units: aliveUnits(world)
-      .map((u) => ({ id: u.id, team: u.team, kind: u.kind, q: u.q, r: u.r, hp: u.hp, order: u.order }))
+      .map((u) => ({
+        id: u.id, team: u.team, kind: u.kind, q: u.q, r: u.r, hp: u.hp,
+        order: u.order, action: u.action, post: u.post, deployed: u.deployed
+      }))
       .sort((a, b) => a.id - b.id)
   };
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createWorld, stepWorld, spawn, issueOrder, findPath, distance, cell,
-  aliveUnits, unitById, snapshot, CAMP, installRule
+  aliveUnits, unitById, snapshot, CAMP, installRule, selectRule
 } from '../experiments/tribe-opening/tribe-sim.js';
 
 // 受控世界：清掉默认单位，按需布置，避免每日刷新干扰
@@ -103,13 +103,21 @@ test('集群狩猎：相邻友方时伤害 +2，并能真的打死猎物', () =>
   assert.ok(pack.logs.some((l) => l.includes('集群狩猎')), '应记录协同 +2 日志');
 });
 
-test('集群狩猎：猎团会主动向友方靠拢（规则改变位移，不只是加伤）', () => {
-  const w = scenario([['human', 'hunter', 4, 0], ['human', 'guard', 0, 0], ['wild', 'deer', 4, -2]], 'pack');
-  const h0 = of(w, 'hunter')[0];
-  const d0 = distance(h0, CAMP);
-  run(w, 3);
-  const h1 = of(w, 'hunter')[0];
-  assert.ok(distance(h1, CAMP) < d0, `应向友方/营地靠拢：${d0} → ${distance(h1, CAMP)}`);
+test('集群狩猎：超过 4 格时才归队（规则改变位移，不只是加伤）', () => {
+  // 4 格以内不归队：避免与狩猎目标来回抖动（滞回锁存见 deploy 测试文件）
+  const near = scenario([['human', 'hunter', 4, 0], ['human', 'guard', 0, 0], ['wild', 'deer', 4, -2]], 'pack');
+  const n0 = of(near, 'hunter')[0];
+  assert.equal(distance(n0, CAMP), 4);
+  assert.notEqual(selectRule(near, n0), 'rule.pack.cohesion', '4 格内不触发归队');
+
+  // 超过 4 格开始归队
+  const far = scenario([['human', 'hunter', 5, -1], ['human', 'guard', 0, 0], ['wild', 'deer', 5, -2]], 'pack');
+  const f0 = of(far, 'hunter')[0];
+  const d0 = distance(f0, CAMP);
+  assert.equal(d0, 5);
+  run(far, 3);
+  const f1 = of(far, 'hunter')[0];
+  assert.ok(distance(f1, CAMP) < d0, `应向友方靠拢：${d0} → ${distance(f1, CAMP)}`);
 });
 
 test('长时间运行不抛错、不产生永久卡住的指令', () => {

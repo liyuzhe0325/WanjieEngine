@@ -1,7 +1,8 @@
 // 河谷流民实验的渲染与交互（Canvas + DOM）。规则全部在 tribe-sim.js，本文件不持有游戏状态权威。
 import {
-  R, SQRT3, CX, CY, CAMP, RULES, cell, createWorld, distance, installRule,
-  issueOrder, snapshot, stepWorld, toXY, unitAt, unitById, aliveUnits, log
+  R, SQRT3, CX, CY, CAMP, RULES, DEPLOY, BEHAVIOR_LABELS,
+  cell, createWorld, distance, installRule, deploy, deployStatus, deployZone,
+  issueOrder, selectRule, snapshot, stepWorld, toXY, unitAt, unitById, aliveUnits, log
 } from "./tribe-sim.js";
 
 const cv = document.getElementById("field");
@@ -21,17 +22,30 @@ function refresh() {
   $("time").textContent = "第 " + world.day + " 日";
   const mine = aliveUnits(world).filter((u) => u.team === "human");
   $("status").textContent =
-    "战团 " + mine.length + " 支 · 野生单位 " + aliveUnits(world).filter((u) => u.team === "wild").length + " 只";
+    "战团 " + mine.length + " 支（已部署 " + (world.deploys || 0) + "）· 野生单位 " +
+    aliveUnits(world).filter((u) => u.team === "wild").length + " 只";
 
   const u = unitById(world, world.selected);
-  $("selected").textContent = u
-    ? "已选：" + (u.kind === "hunter" ? "猎团" : "守卫") + " ｜生命 " + u.hp + "/" + u.maxHp +
-      " ｜行为 " + u.order + (u.retreat ? "（" + u.retreat + "）" : "")
-    : "选择一支我方战团";
+  if (u) {
+    const act = BEHAVIOR_LABELS[u.action] || BEHAVIOR_LABELS.idle;
+    const label = u.kind === "hunter" ? "猎团" : "守卫";
+    const post = u.post ? "(" + u.post.q + "," + u.post.r + ")" : "—";
+    $("selected").textContent =
+      "已选：" + label + " ｜生命 " + u.hp + "/" + u.maxHp +
+      " ｜行为 " + act + " ｜驻守点 " + post + (u.deployed ? " ｜本局部署" : "");
+  } else {
+    $("selected").textContent = "选择一支我方战团";
+  }
+
+  const modeHints = {
+    move: "移动到指定格子",
+    attack: "攻击选中的敌方目标",
+    hold: "到指定格子坚守",
+    "deploy-hunter": "点击营地周围的空地部署猎团",
+    "deploy-guard": "点击营地周围的空地部署守卫"
+  };
   $("orderHint").textContent =
-    world.mode === "select"
-      ? "点击棋子选择；指令无需消耗卡牌。"
-      : "当前指令：" + ({ move: "移动到指定格子", attack: "攻击选中的敌方目标", hold: "到指定格子坚守" }[world.mode] || world.mode);
+    world.mode === "select" ? "点击棋子选择；指令无需消耗卡牌。" : "当前： " + (modeHints[world.mode] || world.mode);
 
   $("cardPrompt").textContent =
     world.offer && !world.rule
@@ -52,9 +66,18 @@ function refresh() {
       $("cards").appendChild(b);
     }
   }
-  $("installed").textContent = world.rule
-    ? "已安装：" + RULES[world.rule].title
-    : "可在危机发生后构筑";
+  $("installed").textContent = world.rule ? "已安装：" + RULES[world.rule].title : "可在危机发生后构筑";
+
+  // 部署按钮：显示成本，食物不足时禁用
+  for (const kind of ["hunter", "guard"]) {
+    const b = $("deploy-" + kind);
+    if (!b) continue;
+    b.textContent = (kind === "hunter" ? "部署猎团" : "部署守卫") + "（食物 " + DEPLOY.cost[kind] + "）";
+    b.disabled = world.food < DEPLOY.cost[kind];
+    b.classList.toggle("active", world.mode === "deploy-" + kind);
+  }
+  $("deployHint").textContent =
+    "部署半径：营地 " + DEPLOY.radius + " 格内 · 部署后棋子以落点为驻守点自主行动";
 
   document.querySelectorAll("[data-order]").forEach((b) =>
     b.classList.toggle("active", b.dataset.order === world.mode)
@@ -62,12 +85,12 @@ function refresh() {
   draw();
 }
 
-function hexPath(x, y) {
+function hexPath(x, y, r = R) {
   ctx.beginPath();
   for (let j = 0; j < 6; j++) {
     const a = (Math.PI / 180) * (60 * j - 30);
-    const px = x + R * Math.cos(a);
-    const py = y + R * Math.sin(a);
+    const px = x + r * Math.cos(a);
+    const py = y + r * Math.sin(a);
     if (j === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
   }
@@ -99,6 +122,22 @@ function draw() {
       ctx.fill();
     }
   }
+
+  // 部署模式：把可部署格画出来
+  if (world.mode === "deploy-hunter" || world.mode === "deploy-guard") {
+    const kind = world.mode === "deploy-hunter" ? "hunter" : "guard";
+    for (const p of deployZone(world)) {
+      const ok = deployStatus(world, kind, p.q, p.r).ok;
+      const [x, y] = toXY(p.q, p.r);
+      hexPath(x, y, R - 5);
+      ctx.fillStyle = ok ? "rgba(243,207,148,0.30)" : "rgba(120,120,120,0.16)";
+      ctx.fill();
+      ctx.lineWidth = ok ? 2 : 1;
+      ctx.strokeStyle = ok ? "#f3cf94" : "#5b6b68";
+      ctx.stroke();
+    }
+  }
+
   const [bx, by] = toXY(CAMP.q, CAMP.r);
   ctx.fillStyle = "#f0c678";
   ctx.beginPath();
@@ -122,10 +161,19 @@ function draw() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText({ hunter: "猎", guard: "卫", wolf: "狼", deer: "鹿" }[u.kind], x, y);
+
     ctx.fillStyle = "#1c2725";
     ctx.fillRect(x - 13, y - 21, 26, 4);
     ctx.fillStyle = "#e69b84";
     ctx.fillRect(x - 13, y - 21, 26 * Math.max(0, u.hp / u.maxHp), 4);
+
+    // 行为反馈：在我方棋子下方标出当前行为（简短）
+    if (u.team === "human") {
+      ctx.font = "10px sans-serif";
+      ctx.fillStyle = "#f3cf94";
+      ctx.fillText(BEHAVIOR_LABELS[u.action] || "待命", x, y + 24);
+    }
+
     if (u.id === world.selected && u.target && typeof u.target.q === "number") {
       const [tx, ty] = toXY(u.target.q, u.target.r);
       ctx.beginPath();
@@ -169,6 +217,17 @@ function fromPointer(e) {
 cv.addEventListener("click", (e) => {
   const p = fromPointer(e);
   if (!cell(world, p.q, p.r)) return;
+
+  // 部署模式优先
+  if (world.mode === "deploy-hunter" || world.mode === "deploy-guard") {
+    const kind = world.mode === "deploy-hunter" ? "hunter" : "guard";
+    const res = deploy(world, kind, p.q, p.r);
+    log(world, res.ok ? "部署成功：" + (kind === "hunter" ? "猎团" : "守卫") + " 驻守 (" + p.q + "," + p.r + ")" : "部署失败：" + res.reason);
+    if (res.ok) world.selected = res.unit.id;
+    refresh();
+    return;
+  }
+
   const clicked = unitAt(world, p.q, p.r);
   const current = unitById(world, world.selected);
 
@@ -209,6 +268,16 @@ document.querySelectorAll("[data-order]").forEach((b) =>
   })
 );
 
+for (const kind of ["hunter", "guard"]) {
+  const b = $("deploy-" + kind);
+  if (!b) continue;
+  b.addEventListener("click", () => {
+    const target = "deploy-" + kind;
+    world.mode = world.mode === target ? "select" : target;
+    refresh();
+  });
+}
+
 $("pause").addEventListener("click", () => {
   paused = !paused;
   $("pause").textContent = paused ? "继续" : "暂停";
@@ -239,10 +308,8 @@ function renderLog() {
   }
 }
 
-// 日志变化后同步 DOM（stepWorld 会写入 world.logs）
-const _stepWorld = stepWorld;
 function tickOnce() {
-  _stepWorld(world);
+  stepWorld(world);
   renderLog();
   if (world.halted) {
     paused = true;
@@ -286,9 +353,18 @@ window.__lab = {
     installRule(world, key);
     refresh();
   },
+  deploy: (kind, q, r) => {
+    const res = deploy(world, kind, q, r);
+    refresh();
+    return res.ok ? "ok" : "fail:" + res.reason;
+  },
   order: (id, order, target) => {
     issueOrder(world, id, order, target);
     refresh();
+  },
+  selectRule: (id) => {
+    const u = unitById(world, id);
+    return u ? selectRule(world, u) : null;
   },
   step: (n = 1) => {
     for (let i = 0; i < n; i++) stepWorld(world);
