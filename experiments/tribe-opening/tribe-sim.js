@@ -20,6 +20,24 @@ export const NAMES = { hunter: "猎团", guard: "守卫", deer: "鹿", wolf: "�
 // 部署：只在营地附近、可通行、无占用；用食物结算，不改基础数值。
 export const DEPLOY = { radius: 2, cost: { hunter: 10, guard: 12 } };
 
+// 军事子系统（V1.0 的实验常量，全部待验证）：兵营产出 → 驻军池 → 方针出营；命令有延迟；军队有维持成本。
+export const MILITARY = {
+  fieldCap: 24,                      // 同屏棋子预算：在野我方战团上限
+  orderDelay: 2,                     // 命令生效延迟（tick）；内核默认 0，正式试玩传 2
+  orderDelayFar: 1,                  // 离营超过 4 格时额外延迟
+  upkeepPerSquad: 1,                 // 每支在野战团每天额外消耗食物
+  trainTicks: { hunter: 6, guard: 9 },  // 训练耗时
+  trainCost: { hunter: 6, guard: 8 },   // 训练食物
+  barracksDeployRange: 3             // 方针感知范围（敌人进到据点 3 格内就出营）
+};
+
+export const STANCES = {
+  hold: { key: "hold", title: "驻守本地", desc: "默认不出营；据点 3 格内出现敌人时出兵迎战" },
+  patrol: { key: "patrol", title: "边境巡防", desc: "据点附近没有我方战团时，出一支在外巡逻" },
+  reinforce: { key: "reinforce", title: "前线增援", desc: "在野战团少于 2 支时补员" },
+  reserve: { key: "reserve", title: "保留预备", desc: "只训练不出兵，等玩家手动部署" }
+};
+
 export const RULES = {
   caution: { key: "caution", title: "警戒本能", desc: "猎团发现 3 格内捕食者时撤离，威胁离开后恢复自主" },
   pack: { key: "pack", title: "集群狩猎", desc: "猎团与友方保持在 2 格内协同，额外造成 2 点伤害" }
@@ -73,6 +91,8 @@ export function unitById(world, id) {
 export function passable(world, q, r, selfId) {
   const c = cell(world, q, r);
   if (!c || c.t === "water") return false;
+  // 兵营是实体建筑：一格一座，占格、阻挡通行
+  if (world.barracks && world.barracks.some((b) => b.q === q && b.r === r)) return false;
   return !unitAt(world, q, r, selfId);
 }
 
@@ -200,6 +220,7 @@ export function spawn(world, team, kind, q, r, post) {
     move: s[2],
     order: "auto",
     target: null,
+    pending: null,
     cool: 0,
     stall: 0,
     // 驻守点：部署机制的核心。玩家部署在哪，这支棋子就以哪里为「家」。
@@ -247,9 +268,113 @@ export function deploy(world, kind, q, r) {
   return { ok: true, reason: status.reason, unit: u };
 }
 
-export function createWorld(seed = 1117) {
+// —— 兵营：军事生产与组织节点（不占「部队上限」，只产兵、出营、设方针） ——
+export function createBarracks(world, q, r, stance = "hold") {
+  const c = cell(world, q, r);
+  if (!c || c.t === "water") return null;
+  if (unitAt(world, q, r)) return null;
+  if (world.barracks.some((b) => b.q === q && b.r === r)) return null;
+  const b = {
+    id: "b" + (world.barracks.length + 1),
+    q,
+    r,
+    stance: STANCES[stance] ? stance : "hold",
+    garrison: { hunter: 0, guard: 0 },
+    training: null,
+    queue: [],
+    produced: 0
+  };
+  world.barracks.push(b);
+  log(world, "兵营设立于 " + q + "," + r);
+  return b;
+}
+
+export function fieldSquads(world) {
+  return aliveUnits(world).filter((u) => u.team === "human").length;
+}
+
+export function orderTraining(world, barracksId, kind) {
+  const b = world.barracks.find((x) => x.id === barracksId);
+  if (!b) return { ok: false, reason: "没有该兵营" };
+  if (!MILITARY.trainCost[kind]) return { ok: false, reason: "兵种不可训练" };
+  b.queue.push(kind);
+  log(world, "兵营排队训练：" + NAMES[kind]);
+  return { ok: true };
+}
+
+export function setStance(world, barracksId, stance) {
+  const b = world.barracks.find((x) => x.id === barracksId);
+  if (!b || !STANCES[stance]) return false;
+  b.stance = stance;
+  log(world, "兵营方针改为：" + STANCES[stance].title);
+  return true;
+}
+
+/** 从驻军池出营：兵营占格，所以落在相邻可达格；落点即驻守点。 */
+export function deployFromGarrison(world, b, kind) {
+  const kinds = kind ? [kind] : ["guard", "hunter"];
+  const chosen = kinds.find((k) => (b.garrison[k] || 0) > 0);
+  if (!chosen) return { ok: false, reason: "驻军池为空" };
+  if (fieldSquads(world) >= world.fieldCap) {
+    log(world, "已达同屏预算，出营排队");
+    return { ok: false, reason: "field-cap" };
+  }
+  const spot = neighbors(b.q, b.r)
+    .filter((n) => passable(world, n.q, n.r))
+    .sort((a, c) => distance(a, CAMP) - distance(c, CAMP) || a.q - c.q || a.r - c.r)[0];
+  if (!spot) return { ok: false, reason: "兵营周围没有空地" };
+  b.garrison[chosen]--;
+  const u = spawn(world, "human", chosen, spot.q, spot.r, { q: b.q, r: b.r });
+  b.produced++;
+  log(world, "兵营出营：" + NAMES[chosen] + " 进驻 " + spot.q + "," + spot.r);
+  return { ok: true, unit: u };
+}
+
+/** 兵营每 tick 结算：训练进度 + 方针出营。全部只看距离与计数，不做战术判断。 */
+export function stepBarracks(world) {
+  if (!world.military || !world.barracks.length) return;
+  for (const b of world.barracks) {
+    if (!b.training && b.queue.length) {
+      const kind = b.queue[0];
+      const cost = MILITARY.trainCost[kind];
+      if (world.food >= cost) {
+        world.food -= cost;
+        b.queue.shift();
+        b.training = { kind, left: MILITARY.trainTicks[kind] };
+        log(world, "开始训练：" + NAMES[kind] + "（食物 " + cost + "）");
+      }
+    }
+    if (b.training) {
+      b.training.left--;
+      if (b.training.left <= 0) {
+        b.garrison[b.training.kind]++;
+        log(world, "训练完成：" + NAMES[b.training.kind] + " 进入驻军");
+        b.training = null;
+      }
+    }
+
+    const wolves = aliveUnits(world)
+      .filter((u) => u.team === "wild" && u.kind === "wolf")
+      .sort((x, y) => distance(x, b) - distance(y, b));
+    const nearEnemy = wolves[0] && distance(wolves[0], b) <= MILITARY.barracksDeployRange;
+    const nearby = aliveUnits(world).filter((u) => u.team === "human" && distance(u, b) <= 3).length;
+    const total = b.garrison.hunter + b.garrison.guard;
+    if (!total) continue;
+
+    const prefer = nearEnemy && b.garrison.guard > 0 ? "guard" : b.garrison.hunter > 0 ? "hunter" : "guard";
+    if (b.stance === "hold" && nearEnemy) deployFromGarrison(world, b, prefer);
+    else if (b.stance === "patrol" && nearby === 0) deployFromGarrison(world, b, prefer);
+    else if (b.stance === "reinforce" && fieldSquads(world) < 2) deployFromGarrison(world, b, prefer);
+  }
+}
+
+export function createWorld(seed = 1117, opts = {}) {
   const world = {
     seed,
+    military: !!opts.military,
+    orderDelay: opts.orderDelay ?? 0,
+    fieldCap: opts.fieldCap ?? MILITARY.fieldCap,
+    barracks: [],
     map: new Map(),
     units: [],
     nextId: 1,
@@ -303,28 +428,51 @@ export function installRule(world, key) {
   return true;
 }
 
-export function issueOrder(world, unitId, order, target) {
-  const u = unitById(world, unitId);
-  if (!u) return false;
+function applyOrder(world, u, order, target) {
   if (order === "auto") {
     u.order = "auto";
     u.target = null;
+    u.pending = null;
     u.stall = 0;
-    return true;
+    return;
   }
   if (order === "attack") {
-    const t = target && unitById(world, target.id);
-    if (!t) return false;
     u.order = "attack";
-    u.target = { id: t.id };
+    u.target = { id: target.id };
     u.stall = 0;
-    return true;
+    return;
   }
-  if (!target || !cell(world, target.q, target.r)) return false;
-  if (cell(world, target.q, target.r).t === "water") return false;
   u.order = order;
   u.target = { q: target.q, r: target.r };
   u.stall = 0;
+}
+
+/**
+ * 下达命令。命令有在途时间（world.orderDelay，离营超过 4 格再加 1 步），
+ * 在途期间棋子仍按自主规则行动 —— 这就是「自动是默认态，干预是例外」的机制表达。
+ */
+export function issueOrder(world, unitId, order, target) {
+  const u = unitById(world, unitId);
+  if (!u) return false;
+  if (order === "attack") {
+    const t = target && unitById(world, target.id);
+    if (!t) return false;
+    target = { id: t.id };
+  } else if (order !== "auto") {
+    if (!target || !cell(world, target.q, target.r)) return false;
+    if (cell(world, target.q, target.r).t === "water") return false;
+    target = { q: target.q, r: target.r };
+  }
+  const delay =
+    order === "auto"
+      ? 0
+      : (world.orderDelay || 0) + (distance(u, CAMP) > 4 ? MILITARY.orderDelayFar : 0);
+  if (delay > 0) {
+    u.pending = { order, target, at: world.tick + delay };
+    log(world, "命令在途：约 " + delay + " 步后生效");
+    return true;
+  }
+  applyOrder(world, u, order, target);
   return true;
 }
 
@@ -568,6 +716,14 @@ function behave(world, u) {
   if (u.hp <= 0) return;
   u.cool = Math.max(0, u.cool - 1);
 
+  // 在途命令到点生效；在途期间棋子继续按自主规则行动
+  if (u.pending && world.tick >= u.pending.at) {
+    const p = u.pending;
+    u.pending = null;
+    applyOrder(world, u, p.order, p.target);
+    log(world, "命令生效：" + (BEHAVIOR_LABELS["order." + p.order] || p.order));
+  }
+
   // 玩家指令优先于一切自主规则
   if (u.order === "move" || u.order === "hold") {
     u.action = u.order === "move" ? "order.move" : "order.hold";
@@ -641,11 +797,20 @@ export function stepWorld(world) {
   const alive = aliveUnits(world).sort((a, b) => a.id - b.id);
   for (const u of alive) behave(world, u);
   world.units = world.units.filter((u) => u.hp > 0);
+  stepBarracks(world);
 
   if (world.tick % DAY_TICKS === 0) {
     world.day++;
     world.food = Math.max(0, world.food - Math.ceil(world.pop / 4));
     log(world, "新的一天到来，部落消耗食物。");
+    if (world.military) {
+      const squads = fieldSquads(world);
+      if (squads > 0) {
+        const upkeep = squads * MILITARY.upkeepPerSquad;
+        world.food = Math.max(0, world.food - upkeep);
+        log(world, "军粮消耗 " + upkeep + "（在野 " + squads + " 支）");
+      }
+    }
     if (!world.units.some((u) => u.kind === "deer")) {
       const spots = [[4, -1], [3, 1], [2, -3], [4, 0]];
       const p = spots.find((s) => passable(world, s[0], s[1]));
@@ -672,11 +837,18 @@ export function snapshot(world) {
     offer: world.offer,
     kills: world.kills,
     deploys: world.deploys || 0,
+    military: !!world.military,
     seed: world.seed,
+    barracks: (world.barracks || []).map((b) => ({
+      id: b.id, q: b.q, r: b.r, stance: b.stance,
+      garrison: { ...b.garrison }, training: b.training ? { ...b.training } : null,
+      queue: b.queue.slice(), produced: b.produced
+    })),
     units: aliveUnits(world)
       .map((u) => ({
         id: u.id, team: u.team, kind: u.kind, q: u.q, r: u.r, hp: u.hp,
-        order: u.order, action: u.action, post: u.post, deployed: u.deployed
+        order: u.order, action: u.action, post: u.post, deployed: u.deployed,
+        pending: u.pending ? { order: u.pending.order, at: u.pending.at } : null
       }))
       .sort((a, b) => a.id - b.id)
   };

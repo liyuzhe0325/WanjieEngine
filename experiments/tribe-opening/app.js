@@ -1,15 +1,24 @@
 // 河谷流民实验的渲染与交互（Canvas + DOM）。规则全部在 tribe-sim.js，本文件不持有游戏状态权威。
 import {
-  R, SQRT3, CX, CY, CAMP, RULES, DEPLOY, BEHAVIOR_LABELS,
-  cell, createWorld, distance, installRule, deploy, deployStatus, deployZone,
-  issueOrder, selectRule, snapshot, stepWorld, toXY, unitAt, unitById, aliveUnits, log
+  R, SQRT3, CX, CY, CAMP, RULES, DEPLOY, BEHAVIOR_LABELS, MILITARY, STANCES,
+  cell, createWorld, createBarracks, distance, installRule, deploy, deployStatus, deployZone,
+  issueOrder, selectRule, snapshot, stepWorld, toXY, unitAt, unitById, aliveUnits, log,
+  orderTraining, setStance, deployFromGarrison, fieldSquads
 } from "./tribe-sim.js";
 
 const cv = document.getElementById("field");
 const ctx = cv.getContext("2d");
 const $ = (id) => document.getElementById(id);
 
-let world = createWorld();
+/** 一局的初始状态：正式试玩启用军事子系统（命令延迟 2 步）、并在营地北侧放一座兵营。 */
+function makeWorld(seed = 1117) {
+  const w = createWorld(seed, { military: true, orderDelay: MILITARY.orderDelay });
+  createBarracks(w, 0, -1, "hold");
+  return w;
+}
+
+let world = makeWorld();
+let barrackSel = null;
 let paused = false;
 let speed = 1;
 let last = 0;
@@ -19,6 +28,7 @@ let acc = 0;
 const TICK_SECONDS = 0.8;
 const SPEEDS = [0.5, 1, 2, 4];
 const speedLabel = (s) => (s === 0.5 ? "0.5× 慢速" : s + "× 速度");
+const NAMES_TRAIN = { hunter: "猎团", guard: "守卫" };
 
 function refresh() {
   $("pop").textContent = world.pop;
@@ -37,7 +47,8 @@ function refresh() {
     const post = u.post ? "(" + u.post.q + "," + u.post.r + ")" : "—";
     $("selected").textContent =
       "已选：" + label + " ｜生命 " + u.hp + "/" + u.maxHp +
-      " ｜行为 " + act + " ｜驻守点 " + post + (u.deployed ? " ｜本局部署" : "");
+      " ｜行为 " + act + " ｜驻守点 " + post + (u.deployed ? " ｜本局部署" : "") +
+      (u.pending ? " ｜指令在途 " + Math.max(0, u.pending.at - world.tick) + " 步" : "");
   } else {
     $("selected").textContent = "选择一支我方战团";
   }
@@ -84,6 +95,21 @@ function refresh() {
   $("deployHint").textContent =
     "部署半径：营地 " + DEPLOY.radius + " 格内 · 部署后棋子以落点为驻守点自主行动";
 
+  // —— 兵营面板 ——
+  const bk = world.barracks.find((b) => b.id === barrackSel) || world.barracks[0] || null;
+  if (bk) {
+    barrackSel = bk.id;
+    const train = bk.training ? NAMES_TRAIN[bk.training.kind] + " 训练中（剩 " + (bk.training.left + 1) + " 步）" : "空闲";
+    $("bState").textContent =
+      "驻军 猎 " + bk.garrison.hunter + " · 卫 " + bk.garrison.guard +
+      " ｜" + train + " ｜在野 " + fieldSquads(world) + "/" + world.fieldCap +
+      " ｜方针 " + STANCES[bk.stance].title;
+    for (const b of document.querySelectorAll("[data-stance]")) {
+      b.classList.toggle("active", b.dataset.stance === bk.stance);
+    }
+    $("bDeploy").disabled = bk.garrison.hunter + bk.garrison.guard === 0;
+    $("bHint").textContent = STANCES[bk.stance].desc;
+  }
   document.querySelectorAll("[data-order]").forEach((b) =>
     b.classList.toggle("active", b.dataset.order === world.mode)
   );
@@ -141,6 +167,32 @@ function draw() {
       ctx.strokeStyle = ok ? "#f3cf94" : "#5b6b68";
       ctx.stroke();
     }
+  }
+
+  // 兵营：实体建筑（占格），旗子 + 驻军数
+  for (const b of world.barracks || []) {
+    const [x, y] = toXY(b.q, b.r);
+    ctx.fillStyle = "#6f5a3e";
+    ctx.fillRect(x - 12, y - 8, 24, 16);
+    ctx.strokeStyle = b.id === barrackSel ? "#fff281" : "#2a2018";
+    ctx.lineWidth = b.id === barrackSel ? 3 : 1.5;
+    ctx.strokeRect(x - 12, y - 8, 24, 16);
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y - 8);
+    ctx.lineTo(x + 4, y - 22);
+    ctx.strokeStyle = "#d9cba3";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#c9665b";
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y - 22);
+    ctx.lineTo(x + 16, y - 18);
+    ctx.lineTo(x + 4, y - 14);
+    ctx.fill();
+    ctx.fillStyle = "#f3cf94";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("驻 " + (b.garrison.hunter + b.garrison.guard), x, y + 22);
   }
 
   const [bx, by] = toXY(CAMP.q, CAMP.r);
@@ -233,6 +285,16 @@ cv.addEventListener("click", (e) => {
     return;
   }
 
+  // 兵营可选中：显示驻军、方针与训练状态
+  const clickedBarracks = (world.barracks || []).find((b) => b.q === p.q && b.r === p.r);
+  if (clickedBarracks) {
+    barrackSel = clickedBarracks.id;
+    world.selected = null;
+    world.mode = "select";
+    refresh();
+    return;
+  }
+
   const clicked = unitAt(world, p.q, p.r);
   const current = unitById(world, world.selected);
 
@@ -283,6 +345,30 @@ for (const kind of ["hunter", "guard"]) {
   });
 }
 
+// —— 兵营操作 ——
+document.querySelectorAll("[data-stance]").forEach((b) =>
+  b.addEventListener("click", () => {
+    if (!barrackSel) return;
+    setStance(world, barrackSel, b.dataset.stance);
+    refresh();
+  })
+);
+document.querySelectorAll("[data-train]").forEach((b) =>
+  b.addEventListener("click", () => {
+    if (!barrackSel) return;
+    const res = orderTraining(world, barrackSel, b.dataset.train);
+    if (!res.ok) log(world, "训练失败：" + res.reason);
+    refresh();
+  })
+);
+$("bDeploy").addEventListener("click", () => {
+  const bk = world.barracks.find((x) => x.id === barrackSel);
+  if (!bk) return;
+  const res = deployFromGarrison(world, bk);
+  if (!res.ok) log(world, "出营失败：" + res.reason);
+  refresh();
+});
+
 $("pause").addEventListener("click", () => {
   paused = !paused;
   $("pause").textContent = paused ? "继续" : "暂停";
@@ -292,7 +378,8 @@ $("speed").addEventListener("click", () => {
   $("speed").textContent = speedLabel(speed);
 });
 $("reset").addEventListener("click", () => {
-  world = createWorld();
+  world = makeWorld();
+  barrackSel = null;
   paused = false;
   speed = 1;
   acc = 0;
@@ -351,7 +438,9 @@ window.__lab = {
     acc = 0;
   },
   reset: (seed) => {
-    world = createWorld(seed);
+    world = makeWorld(seed);
+    barrackSel = null;
+    renderLog();
     refresh();
   },
   install: (key) => {
@@ -371,6 +460,23 @@ window.__lab = {
     const u = unitById(world, id);
     return u ? selectRule(world, u) : null;
   },
+  train: (kind) => {
+    const r = orderTraining(world, barrackSel, kind);
+    refresh();
+    return r.ok;
+  },
+  stance: (s) => {
+    const r = setStance(world, barrackSel, s);
+    refresh();
+    return r;
+  },
+  sortie: () => {
+    const b = world.barracks.find((x) => x.id === barrackSel);
+    const r = b ? deployFromGarrison(world, b) : { ok: false };
+    refresh();
+    return r.ok;
+  },
+  barracks: () => snapshot(world).barracks,
   step: (n = 1) => {
     for (let i = 0; i < n; i++) stepWorld(world);
     renderLog();
