@@ -26,7 +26,9 @@ export const MILITARY = {
   fieldCap: 24,                      // 同屏棋子预算：在野我方战团上限
   orderDelay: 2,                     // 命令生效延迟（tick）；内核默认 0，正式试玩传 2
   orderDelayFar: 1,                  // 离营超过 4 格时额外延迟
-  upkeepPerSquad: 1,                 // 每支在野战团每天额外消耗食物
+  upkeepPerSquad: 1,
+  wolfRespawnDays: 5,
+  growthFoodThreshold: 18,                 // 每支在野战团每天额外消耗食物
   trainTicks: { hunter: 6, guard: 9 },  // 训练耗时
   trainCost: { hunter: 6, guard: 8 },   // 训练食物
   barracksDeployRange: 3             // 方针感知范围（敌人进到据点 3 格内就出营）
@@ -484,6 +486,12 @@ export function issueOrder(world, unitId, order, target) {
 export function hit(world, attacker, defender) {
   if (attacker.cool > 0 || distance(attacker, defender) > attacker.range) return false;
   let dmg = attacker.atk;
+  // 基础配合：守卫在附近牵制狼时，猎团攻击该狼有 +1 协同收益。
+  // 不做复杂 AI 寻优；只依据当前空间关系。
+  if (attacker.kind === "hunter" && defender.kind === "wolf" && aliveUnits(world).some(x=>x.team==="human"&&x.kind==="guard"&&distance(x,defender)<=1)) {
+    dmg += 1;
+    log(world, "守卫牵制：猎团协同 +1");
+  }
   const bonus = packBonus(world, attacker);
   if (bonus) {
     dmg += bonus;
@@ -597,7 +605,7 @@ export const HUNTER_RULES = [
     id: "hunt.prey",
     when: (w, u, c) => !!c.prey,
     act: (w, u, c) => {
-      if (!hit(w, u, c.prey)) stepToward(w, u, c.prey);
+      if (!hit(w, u, c.prey) && distance(u,c.prey)>u.range) stepToward(w, u, c.prey);
     }
   },
   {
@@ -619,9 +627,10 @@ function guardCtx(world, u) {
 export const GUARD_RULES = [
   {
     id: "defend.engage",
-    when: (w, u, c) => !!c.wolf && c.wolfToPost <= 3,
+    when: (w, u, c) => !!c.wolf && (c.wolfToPost <= 4 || distance(c.wolf, u) <= 3),
     act: (w, u, c) => {
-      if (!hit(w, u, c.wolf)) stepToward(w, u, c.wolf);
+      // 守卫以保护营地为职责：接近威胁，但不会毫无意义地绕远追逐。
+      if (!hit(w, u, c.wolf) && distance(u,c.wolf)>u.range) stepToward(w, u, c.wolf);
     }
   },
   {
@@ -817,12 +826,20 @@ export function stepWorld(world) {
         log(world, "军粮消耗 " + upkeep + "（在野 " + squads + " 支）");
       }
     }
+    if (world.civilianMode && world.food >= MILITARY.growthFoodThreshold && world.civilians.length < 30 && world.day % 2 === 0) {
+      world.food -= 6;
+      const i=world.civilians.length+1;
+      world.civilians.push({id:"new-"+world.tick,q:0,r:0,home:{q:0,r:0},state:"idle",job:i%4===0?"builder":"forager",carried:0,work:0});
+      world.pop=world.civilians.length;
+      log(world,"部落食物充足，新流民加入（人口 +1，食物 -6）");
+    }
     if (!world.units.some((u) => u.kind === "deer")) {
       const spots = [[4, -1], [3, 1], [2, -3], [4, 0]];
       const p = spots.find((s) => passable(world, s[0], s[1]));
       if (p) spawn(world, "wild", "deer", p[0], p[1]);
     }
-    if (world.day % 2 === 0 && !world.units.some((u) => u.kind === "wolf")) {
+    // 狼群恢复有缓冲期；禁止连续两天刷狼将小部落反复清空。
+    if (world.day % MILITARY.wolfRespawnDays === 0 && !world.units.some((u) => u.kind === "wolf")) {
       const p = [4, -2];
       if (passable(world, p[0], p[1])) spawn(world, "wild", "wolf", p[0], p[1]);
     }
