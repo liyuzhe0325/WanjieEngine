@@ -52,9 +52,10 @@ export function stepCivilians(world,emit=()=>{}){
       c.state="building";c.work++;place.work++;
       continue;
     }
-    const t=target(world,c);
-    if(dist(c,t)>0){c.state="foraging";walk(world,c,t);}
-    else{c.carried=1;c.state="gathering";}
+    if(!c.destination)c.destination=target(world,c);
+    const t=c.destination;
+    if(dist(c,t)>0){c.state="foraging";if(!walk(world,c,t))c.destination=null;}
+    else{c.carried=1;c.destination=null;c.state="gathering";}
   }
   // 建设节点真实推进，但仅提供可见的聚落成长，不凭空创造军事设施。
   const milestones=[30,90,180,320];
