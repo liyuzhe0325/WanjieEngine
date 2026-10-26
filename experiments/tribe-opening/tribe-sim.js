@@ -55,6 +55,7 @@ export const BEHAVIOR_LABELS = {
   "survive.disengage": "避强：脱离战斗",
   "rule.pack.cohesion": "集群狩猎：向友方合流",
   "hunt.prey": "自主狩猎",
+  "coord.support": "支援守卫",
   "post.return": "返回驻守点",
   "defend.engage": "防守接敌",
   "raid.chase": "追击",
@@ -565,12 +566,13 @@ function flee(world, u, threat, reason) {
 function hunterCtx(world, u) {
   const wolf = closest(world, u, (x) => x.kind === "wolf");
   const ally = closest(world, u, (x) => x.team === "human");
-  const prey = closest(
+  const guardedWolf = closest(world, u, (x) => x.kind === "wolf" && distance(u,x) <= 4 && aliveUnits(world).some(g => g.team === "human" && g.kind === "guard" && distance(g,x) <= 2));
+  const prey = guardedWolf || closest(
     world,
     u,
     (x) => x.kind === "deer" || (x.kind === "wolf" && distance(u, x) <= 2)
   );
-  return { wolf, ally, prey, wd: wolf ? distance(u, wolf) : Infinity };
+  return { wolf, ally, prey, guardedWolf, wd: wolf ? distance(u, wolf) : Infinity };
 }
 
 export const HUNTER_RULES = [
@@ -605,6 +607,7 @@ export const HUNTER_RULES = [
     id: "hunt.prey",
     when: (w, u, c) => !!c.prey,
     act: (w, u, c) => {
+      if (c.guardedWolf && c.prey.id === c.guardedWolf.id) u.action = "coord.support";
       if (!hit(w, u, c.prey) && distance(u,c.prey)>u.range) stepToward(w, u, c.prey);
     }
   },
