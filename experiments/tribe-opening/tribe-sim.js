@@ -1,3 +1,4 @@
+import { initCivilians, stepCivilians, recruitCivilians } from "./civilians.js";
 // 《万界文明》河谷流民 · 自主战棋开局实验 —— 纯规则内核（无 DOM、可被 node --test 直接测试）
 // 与正式 game.html / 六角世界权威状态无关。这里的数值是实验常量，不是定稿平衡。
 //
@@ -337,7 +338,9 @@ export function stepBarracks(world) {
     if (!b.training && b.queue.length) {
       const kind = b.queue[0];
       const cost = MILITARY.trainCost[kind];
-      if (world.food >= cost) {
+      const recruits = kind === "hunter" ? 4 : 5;
+      if (world.food >= cost && (!world.civilianMode || world.civilians.length >= recruits + 2)) {
+        if (world.civilianMode && !recruitCivilians(world,recruits)) continue;
         world.food -= cost;
         b.queue.shift();
         b.training = { kind, left: MILITARY.trainTicks[kind] };
@@ -372,6 +375,7 @@ export function createWorld(seed = 1117, opts = {}) {
   const world = {
     seed,
     military: !!opts.military,
+    civilianMode: !!opts.civilians,
     orderDelay: opts.orderDelay ?? 0,
     fieldCap: opts.fieldCap ?? MILITARY.fieldCap,
     barracks: [],
@@ -407,8 +411,9 @@ export function createWorld(seed = 1117, opts = {}) {
     const c = cell(world, q, r);
     if (c) c.t = "plain";
   }
-  spawn(world, "human", "hunter", 1, 0);
-  spawn(world, "human", "guard", 0, 1);
+  if (world.civilianMode) initCivilians(world,20);
+  if (!world.civilianMode) spawn(world, "human", "hunter", 1, 0);
+  if (!world.civilianMode) spawn(world, "human", "guard", 0, 1);
   spawn(world, "wild", "deer", 3, -1);
   spawn(world, "wild", "deer", 4, 0);
   spawn(world, "wild", "wolf", 4, -2);
@@ -505,7 +510,7 @@ export function hit(world, attacker, defender) {
       log(world, "击退捕食者，食物 +3");
     }
     if (defender.team === "human") {
-      world.pop = Math.max(0, world.pop - (defender.kind === "hunter" ? 4 : 5));
+      if (!world.civilianMode) world.pop = Math.max(0, world.pop - (defender.kind === "hunter" ? 4 : 5));
       log(world, "战团溃散，人口受损");
     }
     world.kills++;
@@ -798,6 +803,7 @@ export function stepWorld(world) {
   for (const u of alive) behave(world, u);
   world.units = world.units.filter((u) => u.hp > 0);
   stepBarracks(world);
+  if (world.civilianMode) stepCivilians(world, (message) => log(world,message));
 
   if (world.tick % DAY_TICKS === 0) {
     world.day++;
@@ -831,6 +837,8 @@ export function snapshot(world) {
     tick: world.tick,
     day: world.day,
     pop: world.pop,
+    civilians: (world.civilians || []).map(c=>({id:c.id,q:c.q,r:c.r,state:c.state,job:c.job,carried:c.carried})),
+    settlement: world.settlement ? {...world.settlement} : null,
     food: world.food,
     rule: world.rule,
     encounter: world.encounter,
