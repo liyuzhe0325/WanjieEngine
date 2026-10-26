@@ -12,7 +12,7 @@ const $ = (id) => document.getElementById(id);
 
 /** 一局的初始状态：正式试玩启用军事子系统（命令延迟 2 步）、并在营地北侧放一座兵营。 */
 function makeWorld(seed = 1117) {
-  const w = createWorld(seed, { military: true, orderDelay: MILITARY.orderDelay });
+  const w = createWorld(seed, { military: true, civilians: true, orderDelay: MILITARY.orderDelay });
   createBarracks(w, 0, -1, "hold");
   return w;
 }
@@ -32,6 +32,7 @@ const NAMES_TRAIN = { hunter: "猎团", guard: "守卫" };
 
 function refresh() {
   $("pop").textContent = world.pop;
+  if ($("civilianState")) $("civilianState").textContent = "流民 " + (world.civilians?.length || 0) + " 人 · 住所 " + (world.settlement?.homes || 1) + " 处 · 建设积累 " + (world.settlement?.work || 0);
   $("food").textContent = world.food;
   $("threat").textContent = aliveUnits(world).some((u) => u.kind === "wolf") ? "捕食者" : "暂时安全";
   $("time").textContent = "第 " + world.day + " 日";
@@ -88,12 +89,12 @@ function refresh() {
   for (const kind of ["hunter", "guard"]) {
     const b = $("deploy-" + kind);
     if (!b) continue;
-    b.textContent = (kind === "hunter" ? "部署猎团" : "部署守卫") + "（食物 " + DEPLOY.cost[kind] + "）";
-    b.disabled = world.food < DEPLOY.cost[kind];
+    b.textContent = world.civilianMode ? "从兵营训练" + (kind === "hunter" ? "猎团" : "守卫") : (kind === "hunter" ? "部署猎团" : "部署守卫") + "（食物 " + DEPLOY.cost[kind] + "）";
+    b.disabled = world.civilianMode || world.food < DEPLOY.cost[kind];
     b.classList.toggle("active", world.mode === "deploy-" + kind);
   }
   $("deployHint").textContent =
-    "部署半径：营地 " + DEPLOY.radius + " 格内 · 部署后棋子以落点为驻守点自主行动";
+    world.civilianMode ? "流民开局：请从兵营征募，战团从兵营相邻格真实出营。" : "部署半径：营地 " + DEPLOY.radius + " 格内 · 部署后棋子以落点为驻守点自主行动";
 
   // —— 兵营面板 ——
   const bk = world.barracks.find((b) => b.id === barrackSel) || world.barracks[0] || null;
@@ -169,6 +170,19 @@ function draw() {
     }
   }
 
+  // 轻量居民：属于生活观察层，不占用战术单位格。
+  for (const c of world.civilians || []) {
+    const [x,y]=toXY(c.q,c.r);
+    const n=world.civilians.filter(p=>p.q===c.q&&p.r===c.r).findIndex(p=>p.id===c.id);
+    const dx=(n%4-1.5)*6,dy=(Math.floor(n/4)-1)*6;
+    ctx.beginPath();ctx.arc(x+dx,y+dy,2.8,0,Math.PI*2);
+    ctx.fillStyle=c.job==="builder"?"#f1d49d":"#e7ddd0";ctx.fill();
+  }
+  // 简易住所：随着流民建设积累显现，不生成兵营。
+  for(let i=0;i<(world.settlement?.buildingCount||0);i++){
+    const [x,y]=toXY(CAMP.q,CAMP.r);const a=i*Math.PI/2;
+    ctx.fillStyle="#bba17d";ctx.fillRect(x+18+Math.cos(a)*19-5,y+Math.sin(a)*17-5,10,10);
+  }
   // 兵营：实体建筑（占格），旗子 + 驻军数
   for (const b of world.barracks || []) {
     const [x, y] = toXY(b.q, b.r);
